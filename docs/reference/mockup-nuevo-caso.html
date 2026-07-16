@@ -1,0 +1,423 @@
+<!--
+  REFERENCE ONLY — decoded from docs/TriageAI.html (the frozen design mockup).
+  This is the source of truth for exact layout, colors, spacing, and behavior
+  of the "Nuevo caso" screen. Do NOT ship this file; translate it to Next.js +
+  React + Tailwind per the tickets in docs/tickets/.
+
+  Provenance: docs/TriageAI.html is a self-unpacking bundle; this file is its
+  decoded template (markup + component logic), with the embedded @font-face
+  base64 blocks removed.
+
+  Fonts: body uses 'Libre Franklin' (system-ui fallback); monospace bits use
+  'IBM Plex Mono'. Load both via next/font or an equivalent.
+
+  Templating note: the markup below uses the mockup engine's syntax
+  ({{ expr }}, <sc-for list as>, <sc-if value>) and inline styles. Treat it as a
+  spec for structure/style; re-express as React components + Tailwind. The
+  <script> at the bottom (class Component extends DCLogic) documents the exact
+  Manchester color map (LEVELS), the seeded state, and the interaction behavior.
+
+  Placeholder policy (see docs/specs/frontend-nuevo-caso.md): the real clinical
+  content shown here (chest-pain case, vitals, reasoning) is illustrative only —
+  render placeholder/labeled-slot content instead, and start the level card
+  neutral.
+-->
+
+<style>
+  html,body{margin:0;padding:0}
+  body{background:#e6e7ea;font-family:'Libre Franklin',system-ui,sans-serif;color:#262a30;-webkit-font-smoothing:antialiased}
+  *{box-sizing:border-box}
+  a{color:#157f74;text-decoration:none}
+  a:hover{color:#0f5c53}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:rgba(0,0,0,.14);border-radius:6px;border:3px solid transparent;background-clip:padding-box}
+  ::-webkit-scrollbar-track{background:transparent}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+  @keyframes softpulse{0%,100%{opacity:1}50%{opacity:.35}}
+  @keyframes msgIn{from{opacity:0;transform:translateY(10px) scale(.99)}to{opacity:1;transform:none}}
+  @keyframes toastIn{from{opacity:0;transform:translateY(-10px) translateX(-50%)}to{opacity:1;transform:translateY(0) translateX(-50%)}}
+</style>
+
+<!-- ============ MARKUP (three-column Nuevo caso) ============ -->
+<div style="display:flex;height:100vh;width:100%;overflow:hidden;background:#f5f6f7">
+
+  <!-- ░░ NAV ░░ -->
+  <nav style="width:clamp(208px,18vw,244px);flex:none;background:#edeef1;border-right:1px solid rgba(0,0,0,.09);display:flex;flex-direction:column;padding:22px 16px">
+    <div style="display:flex;align-items:center;gap:11px;padding:6px 8px 26px">
+      <div style="width:0;height:0;border-left:11px solid transparent;border-right:11px solid transparent;border-bottom:19px solid #157f74"></div>
+      <span style="font-weight:700;font-size:20px;letter-spacing:-.01em">TriageAI</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:3px">
+      <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:9px;color:#565b63;cursor:pointer" style-hover="background:rgba(0,0,0,.045)">
+        <span style="width:16px;height:16px;border:1.6px solid currentColor;border-radius:3px;display:block"></span><span style="font-size:15px">Inicio</span></div>
+      <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:9px;color:#565b63;cursor:pointer" style-hover="background:rgba(0,0,0,.045)">
+        <span style="width:16px;height:16px;border:1.6px solid currentColor;border-radius:3px;border-top-width:5px;display:block"></span><span style="font-size:15px">Casos abiertos</span></div>
+      <div style="display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:10px;background:#e2e4e8;border:1px solid rgba(0,0,0,.12);color:#262a30;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.05)">
+        <span style="position:relative;width:16px;height:16px;display:block"><span style="position:absolute;left:7px;top:1px;width:2px;height:14px;background:currentColor;border-radius:2px"></span><span style="position:absolute;left:1px;top:7px;width:14px;height:2px;background:currentColor;border-radius:2px"></span></span><span style="font-size:15px">Nuevo caso</span></div>
+      <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:9px;color:#565b63;cursor:pointer" style-hover="background:rgba(0,0,0,.045)">
+        <span style="width:14px;height:16px;border:1.6px solid currentColor;border-radius:2px;display:block;position:relative"><span style="position:absolute;left:2px;top:4px;right:2px;height:1.6px;background:currentColor"></span><span style="position:absolute;left:2px;top:8px;right:2px;height:1.6px;background:currentColor"></span></span><span style="font-size:15px">Documentos</span></div>
+      <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:9px;color:#565b63;cursor:pointer" style-hover="background:rgba(0,0,0,.045)">
+        <span style="width:16px;height:16px;border:1.6px solid currentColor;border-radius:50%;display:block;position:relative"><span style="position:absolute;left:7px;top:3px;width:1.6px;height:6px;background:currentColor"></span><span style="position:absolute;left:7px;top:7px;width:5px;height:1.6px;background:currentColor"></span></span><span style="font-size:15px">Estadísticas</span></div>
+    </div>
+    <div style="margin-top:auto;display:flex;align-items:center;gap:11px;padding:12px 10px;border-top:1px solid rgba(0,0,0,.08)">
+      <div style="width:34px;height:34px;border-radius:50%;background:#d3d6db;border:1px solid rgba(0,0,0,.12);flex:none"></div>
+      <div style="line-height:1.25"><div style="font-size:13.5px;font-weight:600">M. Soto</div><div style="font-size:11.5px;color:#7c828c">Enfermería · Turno tarde</div></div>
+    </div>
+  </nav>
+
+  <!-- ░░ CONVERSATION ░░ -->
+  <main style="flex:1;min-width:0;display:flex;flex-direction:column;background:#f5f6f7;border-right:1px solid rgba(0,0,0,.09);position:relative">
+    <header style="padding:22px 30px 16px;border-bottom:1px dashed rgba(0,0,0,.18);display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex:none">
+      <div>
+        <div style="font-size:19px;font-weight:400;color:#7c828c">Casos / <span style="font-weight:700;color:#262a30">Caso #2451 · Nuevo</span></div>
+        <div style="font-size:13px;color:#7c828c;margin-top:4px">Iniciado 14:33 · Enf. M. Soto</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 15px;border:1px solid rgba(0,0,0,.2);border-radius:22px;background:#f7f8f9;font-size:13.5px;font-weight:500;white-space:nowrap;flex:none">
+        <span style="width:8px;height:8px;border-radius:50%;background:{{ analyzeDot }};animation:{{ analyzeAnim }}"></span>{{ analyzeLabel }}
+      </div>
+    </header>
+
+    <sc-if value="{{ toast }}" hint-placeholder-val="">
+      <div style="position:absolute;top:84px;left:50%;transform:translateX(-50%);z-index:20;background:#262a30;color:#f5f6f7;padding:11px 20px;border-radius:24px;font-size:13.5px;font-weight:500;box-shadow:0 8px 24px rgba(0,0,0,.22);animation:toastIn .25s ease;white-space:nowrap">{{ toast }}</div>
+    </sc-if>
+
+    <div style="flex:1;overflow-y:auto;padding:26px 30px 12px">
+      <div style="max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:20px">
+        <sc-for list="{{ messages }}" as="m" hint-placeholder-count="4">
+          <div>
+          <sc-if value="{{ m.isNurse }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;justify-content:flex-end;align-items:flex-end;gap:10px;animation:msgIn .3s ease both">
+              <div style="max-width:78%;background:#e7e9ec;border:1.5px solid #d2d5da;border-radius:16px 16px 4px 16px;padding:14px 18px;font-size:16px;line-height:1.5;color:#2e3138">{{ m.text }}</div>
+              <div style="width:34px;height:34px;flex:none;border-radius:50%;border:1.5px solid #b7bcc4;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#7c828c;background:#f5f6f7">{{ m.lang }}</div>
+            </div>
+            <sc-if value="{{ m.hasAttachments }}" hint-placeholder-val="">
+              <div style="display:flex;flex-wrap:wrap;justify-content:flex-end;gap:10px;margin:10px 44px 0 0">
+                <sc-for list="{{ m.attachments }}" as="a" hint-placeholder-count="2">
+                  <div style="display:flex;align-items:center;gap:9px;padding:8px 13px;border:1.5px solid #d2d5da;border-radius:11px;background:#f7f8f9;font-size:13.5px;cursor:pointer" style-hover="background:#e9ebee">
+                    <span style="width:13px;height:16px;border:1.4px solid #7c828c;border-radius:2px;display:block;position:relative;flex:none"><span style="position:absolute;left:2px;top:5px;right:2px;height:1.3px;background:#7c828c"></span><span style="position:absolute;left:2px;top:8px;right:2px;height:1.3px;background:#7c828c"></span></span>{{ a }}
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+          </sc-if>
+          <sc-if value="{{ m.isAi }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;align-items:flex-start;gap:12px;animation:msgIn .3s ease both">
+              <div style="width:36px;height:36px;flex:none;border-radius:50%;border:1.5px solid #262a30;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#262a30;background:#f7f8f9">AI</div>
+              <div style="max-width:82%;background:#fbfbfc;border:1.5px solid #262a30;border-radius:4px 16px 16px 16px;padding:15px 18px">
+                <sc-if value="{{ m.title }}" hint-placeholder-val="">
+                  <div style="display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#262a30;margin-bottom:8px">{{ m.title }}<sc-if value="{{ m.link }}" hint-placeholder-val=""><a href="#panel" style="font-weight:600;font-size:13px;text-transform:none;letter-spacing:0">▸ ver panel</a></sc-if></div>
+                </sc-if>
+                <div style="font-size:16px;line-height:1.5;color:#2e3138">{{ m.text }}</div>
+              </div>
+            </div>
+          </sc-if>
+          </div>
+        </sc-for>
+        <sc-if value="{{ analyzing }}" hint-placeholder-val="">
+          <div style="display:flex;align-items:center;gap:12px;animation:fadeIn .2s ease">
+            <div style="width:36px;height:36px;flex:none;border-radius:50%;border:1.5px solid #262a30;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;background:#f7f8f9">AI</div>
+            <div style="display:flex;gap:5px;padding:16px 18px;background:#fbfbfc;border:1.5px solid #262a30;border-radius:4px 16px 16px 16px">
+              <span style="width:7px;height:7px;border-radius:50%;background:#262a30;animation:softpulse 1s ease infinite"></span>
+              <span style="width:7px;height:7px;border-radius:50%;background:#262a30;animation:softpulse 1s ease .2s infinite"></span>
+              <span style="width:7px;height:7px;border-radius:50%;background:#262a30;animation:softpulse 1s ease .4s infinite"></span>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+
+    <!-- composer -->
+    <div style="flex:none;padding:16px 30px 22px;background:#f5f6f7">
+      <div style="max-width:760px;margin:0 auto">
+        <div style="border:1.5px dashed rgba(0,0,0,.22);border-radius:12px;padding:11px 16px;font-size:13.5px;color:#7c828c;display:flex;align-items:center;gap:9px;margin-bottom:12px">
+          <span style="font-size:15px">⤒</span> Arrastra PDF, informe de ambulancia o analítica para adjuntar
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;background:#f7f8f9;border:1.5px solid #262a30;border-radius:14px;padding:8px 8px 8px 18px">
+          <input value="{{ input }}" sc-camel-on-input="{{ onInput }}" sc-camel-on-key-down="{{ onKey }}" placeholder="Describe el estado del paciente…" style="flex:1;min-width:0;border:none;outline:none;background:transparent;font-family:inherit;font-size:16px;color:#262a30;padding:8px 0">
+          <button style="display:flex;align-items:center;gap:7px;padding:9px 12px;border:none;background:transparent;font-family:inherit;font-size:14px;color:#6a6f78;cursor:pointer;border-radius:9px" style-hover="background:rgba(0,0,0,.05)"><span style="font-size:15px">🖇</span>Adjuntar</button>
+          <button sc-camel-on-click="{{ send }}" style="display:flex;align-items:center;gap:6px;padding:11px 22px;border:1.5px solid #262a30;border-radius:11px;background:#262a30;color:#f5f6f7;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer" style-hover="background:#000">Enviar ▸</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ░░ CONTEXT PANEL ░░ -->
+  <aside id="panel" style="width:clamp(360px,31vw,452px);flex:none;background:#f5f6f7;display:flex;flex-direction:column;overflow:hidden">
+    <div style="flex:1;overflow-y:auto;padding:24px 26px 8px">
+
+      <!-- patient -->
+      <div style="display:flex;gap:14px;align-items:flex-start;margin-bottom:16px">
+        <div style="width:52px;height:52px;flex:none;border-radius:50%;background:repeating-linear-gradient(135deg,#dcdee2 0 6px,#d3d6db 6px 12px);border:1px solid rgba(0,0,0,.15)"></div>
+        <div style="padding-top:2px">
+          <div style="font-size:21px;font-weight:700;letter-spacing:-.01em">Varón · 58 años</div>
+          <div style="font-size:13px;color:#7c828c;margin-top:3px">Hª 4471-A · Llegada 14:32 · ambulante</div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;gap:12px;font-size:13.5px;padding:7px 0"><span style="color:#7c828c">Motivo</span><span style="font-weight:700;text-align:right">Dolor torácico opresivo (40 min)</span></div>
+      <div style="display:flex;justify-content:space-between;gap:12px;font-size:13.5px;padding:7px 0"><span style="color:#7c828c">Antecedentes</span><span style="font-weight:700;text-align:right">HTA en tratamiento</span></div>
+
+      <div style="font-size:12px;font-weight:700;letter-spacing:.09em;color:#7c828c;margin:18px 0 11px">SIGNOS VITALES</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+        <sc-for list="{{ vitals }}" as="v" hint-placeholder-count="5">
+          <div style="{{ v.boxStyle }}">
+            <div style="font-size:11.5px;color:#7c828c;margin-bottom:3px">{{ v.label }}</div>
+            <div><span style="font-size:20px;font-weight:700">{{ v.value }}</span> <span style="font-size:11.5px;color:#7c828c">{{ v.unit }}</span></div>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="border-top:1px dashed rgba(0,0,0,.2);margin:20px 0 16px"></div>
+
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px">
+        <span style="font-size:12px;font-weight:700;letter-spacing:.09em;color:#565b63">RECOMENDACIÓN IA</span>
+        <span style="font-size:12px;font-style:italic;color:#9aa0aa">se actualiza en vivo</span>
+      </div>
+
+      <div key="{{ analysisKey }}" style="animation:fadeUp .5s ease both">
+        <!-- level card -->
+        <div style="{{ recCardStyle }};border-radius:13px;padding:17px 20px;display:flex;align-items:center;gap:15px">
+          <div style="{{ recDotStyle }};width:22px;height:22px;border-radius:50%;flex:none"></div>
+          <div>
+            <div style="{{ recInkStyle }};font-size:26px;font-weight:700;letter-spacing:.02em;line-height:1">{{ levelLabel }}</div>
+            <div style="font-size:14px;color:#565b63;margin-top:4px">{{ levelSub }}</div>
+          </div>
+          <sc-if value="{{ overridden }}" hint-placeholder-val="">
+            <div style="margin-left:auto;font-size:11px;font-weight:600;color:#7c828c;text-align:right;line-height:1.3">anulado<br>por clínico</div>
+          </sc-if>
+        </div>
+
+        <!-- confidence -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin:16px 0 7px">
+          <span style="font-size:13.5px;font-weight:600">Confianza</span>
+          <span style="font-size:15px;font-weight:700;font-family:'IBM Plex Mono',monospace">{{ confidence }}%</span>
+        </div>
+        <div style="position:relative;height:13px;border-radius:7px;background:#dcdee3;overflow:hidden;border:1px solid rgba(0,0,0,.08)">
+          <div style="height:100%;width:{{ confidencePct }};background:#262a30;border-radius:7px;transition:width .8s cubic-bezier(.4,0,.2,1)"></div>
+          <div style="position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 9.2%,#f5f6f7 9.2%,#f5f6f7 10%)"></div>
+        </div>
+
+        <!-- reasoning -->
+        <div style="font-size:12px;font-weight:700;letter-spacing:.08em;color:#565b63;margin:20px 0 9px">RAZONAMIENTO CLÍNICO</div>
+        <div style="display:flex;flex-direction:column;gap:11px">
+          <sc-for list="{{ reasoning }}" as="r" hint-placeholder-count="3">
+            <div style="display:flex;gap:10px;font-size:14.5px;line-height:1.45;color:#2e3138"><span style="color:#a41f14;font-weight:700;flex:none">›</span><span>{{ r }}</span></div>
+          </sc-for>
+        </div>
+
+        <!-- missing -->
+        <div style="font-size:12px;font-weight:700;letter-spacing:.08em;color:#565b63;margin:20px 0 9px">INFORMACIÓN FALTANTE</div>
+        <sc-if value="{{ hasMissing }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-direction:column;gap:9px">
+            <sc-for list="{{ missing }}" as="mi" hint-placeholder-count="3">
+              <div style="display:flex;gap:10px;font-size:14.5px;line-height:1.45;color:#2e3138"><span style="width:6px;height:6px;border-radius:50%;border:1.6px solid #b98a2a;flex:none;margin-top:7px"></span><span>{{ mi }}</span></div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ noMissing }}" hint-placeholder-val="">
+          <div style="font-size:14px;color:#2c7137;display:flex;gap:8px;align-items:center">✓ Datos clave completos</div>
+        </sc-if>
+
+        <!-- next steps -->
+        <div style="font-size:12px;font-weight:700;letter-spacing:.08em;color:#565b63;margin:20px 0 9px">PRÓXIMOS PASOS</div>
+        <div style="display:flex;flex-direction:column;gap:11px">
+          <sc-for list="{{ nextSteps }}" as="n" hint-placeholder-count="3">
+            <div style="display:flex;gap:11px;font-size:14.5px;line-height:1.45;color:#2e3138"><span style="font-size:11px;font-weight:700;font-family:'IBM Plex Mono',monospace;color:#7c828c;flex:none;margin-top:2px">{{ n.num }}</span><span>{{ n.text }}</span></div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+
+    <!-- actions -->
+    <div style="flex:none;padding:14px 26px 20px;border-top:1px solid rgba(0,0,0,.09);background:#f5f6f7;position:relative">
+      <sc-if value="{{ noteOpen }}" hint-placeholder-val="">
+        <div style="margin-bottom:12px;animation:fadeUp .2s ease">
+          <textarea value="{{ note }}" sc-camel-on-input="{{ onNote }}" placeholder="Nota del clínico para este caso…" style="width:100%;height:64px;resize:none;border:1.5px solid #d2d5da;border-radius:10px;padding:10px 12px;font-family:inherit;font-size:14px;color:#262a30;background:#fbfbfc;outline:none"></textarea>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ overrideOpen }}" hint-placeholder-val="">
+        <div style="position:absolute;left:26px;right:26px;bottom:118px;background:#fbfbfc;border:1.5px solid #262a30;border-radius:13px;padding:9px;box-shadow:0 12px 34px rgba(0,0,0,.2);z-index:15;animation:fadeUp .2s ease">
+          <div style="font-size:12px;font-weight:700;letter-spacing:.06em;color:#7c828c;padding:6px 8px 8px">ANULAR → SELECCIONA NIVEL MANCHESTER</div>
+          <sc-for list="{{ levelOptions }}" as="lv" hint-placeholder-count="5">
+            <div sc-camel-on-click="{{ lv.pick }}" style="display:flex;align-items:center;gap:12px;padding:10px 10px;border-radius:9px;cursor:pointer" style-hover="background:rgba(0,0,0,.05)">
+              <span style="{{ lv.dotStyle }};width:16px;height:16px;border-radius:50%;flex:none"></span>
+              <span style="{{ lv.inkStyle }};font-weight:700;font-size:15px;width:82px">{{ lv.label }}</span>
+              <span style="font-size:13px;color:#7c828c">{{ lv.sub }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <button sc-camel-on-click="{{ accept }}" style="{{ acceptBtnStyle }};width:100%;padding:15px;border-radius:12px;font-family:inherit;font-size:16px;font-weight:700;cursor:pointer;margin-bottom:10px">{{ acceptLabel }}</button>
+      <div style="display:flex;gap:10px">
+        <button sc-camel-on-click="{{ toggleOverride }}" style="flex:1;padding:13px;border-radius:11px;border:1.5px solid #d2d5da;background:#f7f8f9;font-family:inherit;font-size:14.5px;font-weight:600;color:#2e3138;cursor:pointer" style-hover="background:#e9ebee">⇄ Anular…</button>
+        <button sc-camel-on-click="{{ toggleNote }}" style="flex:1;padding:13px;border-radius:11px;border:1.5px solid #d2d5da;background:#f7f8f9;font-family:inherit;font-size:14.5px;font-weight:600;color:#2e3138;cursor:pointer" style-hover="background:#e9ebee">+ Nota</button>
+      </div>
+    </div>
+  </aside>
+</div>
+
+</x-dc>
+
+<!-- ============ COMPONENT LOGIC (colors, state, behavior) ============ -->
+<script type="text/x-dc-reference">
+class Component extends DCLogic {
+  LEVELS = {
+    rojo:    {label:'ROJO',    sub:'Atención inmediata', ink:'#a41f14', dot:'#c0271a', cardBg:'#fceeeb', cardBd:'#e6a89f', aBg:'#f6d8d3', aBd:'#dca69f', aInk:'#8f1d12'},
+    naranja: {label:'NARANJA', sub:'Muy urgente',        ink:'#b0560f', dot:'#d06a15', cardBg:'#fdf2e8', cardBd:'#eec7a3', aBg:'#f8e6d3', aBd:'#e2be96', aInk:'#95490c'},
+    amarillo:{label:'AMARILLO',sub:'Urgente',            ink:'#876706', dot:'#c99a0a', cardBg:'#fbf6e2', cardBd:'#e6d68e', aBg:'#f4edcf', aBd:'#d9c98a', aInk:'#6f5504'},
+    verde:   {label:'VERDE',   sub:'Estándar',           ink:'#2c7137', dot:'#3f9a4d', cardBg:'#edf6ee', cardBd:'#a9d3af', aBg:'#dcefdd', aBd:'#a3ceaa', aInk:'#215c2a'},
+    azul:    {label:'AZUL',    sub:'No urgente',         ink:'#2a6493', dot:'#3b83bd', cardBg:'#eaf3fa', cardBd:'#a6c9e5', aBg:'#d9eaf6', aBd:'#a0c6e3', aInk:'#1f5079'},
+  };
+  ORDER = ['rojo','naranja','amarillo','verde','azul'];
+  INITIAL_MISSING = 3;
+
+  state = {
+    input: '', analyzing: false, accepted: false, overridden: false,
+    overrideOpen: false, noteOpen: false, note: '', toast: null,
+    levelKey: 'rojo', confidence: 0, analysisKey: 1,
+    messages: [
+      {isNurse:true, lang:'EN', text:'Varón de 58 años, dolor torácico opresivo desde hace 40 min, irradiado a brazo izquierdo, con sudoración y disnea.'},
+      {isAi:true, title:'Falta información', text:'¿Antecedentes cardíacos o medicación habitual? ¿Cifras de TA y SatO₂ actuales?'},
+      {isNurse:true, lang:'EN', text:'HTA en tratamiento. TA 90/60, FC 110, SatO₂ 92%. Adjunto informe de ambulancia.', hasAttachments:true, attachments:['Informe_ambulancia.pdf','Lab_urgencias.pdf']},
+      {isAi:true, title:'Recomendación lista', link:true, text:'He analizado el caso. La recomendación aparece en el panel derecho. Sigo atenta a nuevos datos.'},
+    ],
+    reasoning: [
+      'Dolor opresivo irradiado a brazo izq. + diaforesis + disnea → sospecha de SCA',
+      'Hipotensión (90/60) y taquicardia (110) → posible compromiso hemodinámico',
+      'SatO₂ 92% → hipoxemia leve',
+    ],
+    missing: ['ECG de 12 derivaciones pendiente','Troponina no disponible','Alergias sin confirmar'],
+    nextSteps: [
+      'Activar código dolor torácico + monitorización',
+      'ECG inmediato + analítica con troponina',
+      'Vía IV + O₂ suplementario',
+    ],
+  };
+
+  componentDidMount(){
+    const lv = this.props.defaultLevel;
+    if(lv && this.LEVELS[lv]) this.setState({levelKey: lv});
+    this.animateConfidence(88);
+  }
+  componentWillUnmount(){ cancelAnimationFrame(this._raf); clearTimeout(this._t); clearTimeout(this._toast); }
+
+  animateConfidence(target){
+    cancelAnimationFrame(this._raf);
+    const from = this.state.confidence, start = performance.now(), dur = 900;
+    const tick = (now) => {
+      const t = Math.min(1,(now-start)/dur), e = 1-Math.pow(1-t,3);
+      this.setState({confidence: Math.round(from+(target-from)*e)});
+      if(t<1) this._raf = requestAnimationFrame(tick);
+    };
+    this._raf = requestAnimationFrame(tick);
+  }
+
+  showToast(msg){ this.setState({toast:msg}); clearTimeout(this._toast); this._toast=setTimeout(()=>this.setState({toast:null}),2800); }
+
+  onInput = (e)=> this.setState({input:e.target.value});
+  onNote = (e)=> this.setState({note:e.target.value});
+  onKey = (e)=>{ if(e.key==='Enter'){ e.preventDefault(); this.send(); } };
+
+  send = ()=>{
+    const text = this.state.input.trim();
+    if(!text || this.state.analyzing) return;
+    this.setState(s=>({messages:[...s.messages,{isNurse:true,lang:'EN',text}], input:'', analyzing:true}));
+    const delay = this.props.thinkingMs || 1600;
+    clearTimeout(this._t);
+    this._t = setTimeout(()=>{
+      const t = text.toLowerCase();
+      let missing = [...this.state.missing];
+      let reasoning = [...this.state.reasoning];
+      const added = [];
+      const drop = (needle, label, reason)=>{
+        const i = missing.findIndex(m=>m.toLowerCase().includes(needle));
+        if(t.includes(needle) && i>=0){ missing.splice(i,1); added.push(label); if(reason) reasoning=[...reasoning,reason]; }
+      };
+      drop('ecg','ECG','ECG registrado → integrado en la valoración de SCA');
+      drop('troponina','troponina','Resultado de troponina incorporado al análisis');
+      drop('alergia','alergias');
+      const conf = Math.min(97, 88 + (this.INITIAL_MISSING - missing.length)*3);
+      const reply = added.length
+        ? `Registrado. He actualizado el panel: ${added.join(', ')}. La confianza sube a ${conf}%.`
+        : 'He incorporado el dato al análisis. El panel derecho refleja el cambio.';
+      this.setState(s=>({
+        analyzing:false, missing, reasoning, analysisKey:s.analysisKey+1, confidence:0,
+        messages:[...s.messages,{isAi:true, title:'Análisis actualizado', link:true, text:reply}],
+      }));
+      this.animateConfidence(conf);
+    }, delay);
+  };
+
+  accept = ()=>{
+    const L = this.LEVELS[this.state.levelKey];
+    this.setState({accepted:true, overrideOpen:false});
+    this.showToast(`Triage confirmado · ${L.label}`);
+  };
+  toggleOverride = ()=> this.setState(s=>({overrideOpen:!s.overrideOpen, noteOpen:false}));
+  toggleNote = ()=> this.setState(s=>({noteOpen:!s.noteOpen, overrideOpen:false}));
+  pickLevel = (key)=>{
+    const L = this.LEVELS[key];
+    this.setState({levelKey:key, overridden:true, accepted:false, overrideOpen:false, analysisKey:this.state.analysisKey+1});
+    this.showToast(`Nivel anulado → ${L.label}`);
+  };
+
+  renderVals(){
+    const s = this.state, L = this.LEVELS[s.levelKey];
+    const vitalBox = (tone)=>{
+      const map = {
+        crit:'background:#fceeeb;border:1.5px solid #e6a89f',
+        warn:'background:#fbf6e2;border:1.5px solid #e6d68e',
+        ok:  'background:#f7f8f9;border:1.5px solid #d2d5da',
+      };
+      return `${map[tone]};border-radius:10px;padding:10px 12px`;
+    };
+    const vitals = [
+      {label:'TA', value:'90/60', unit:'mmHg', boxStyle:vitalBox('crit')},
+      {label:'FC', value:'110', unit:'lpm', boxStyle:vitalBox('crit')},
+      {label:'SatO₂', value:'92%', unit:'', boxStyle:vitalBox('crit')},
+      {label:'FR', value:'24', unit:'rpm', boxStyle:vitalBox('warn')},
+      {label:'Tª', value:'36.8', unit:'°C', boxStyle:vitalBox('ok')},
+    ];
+    const levelOptions = this.ORDER.map(k=>{
+      const lv = this.LEVELS[k];
+      return {label:lv.label, sub:lv.sub, dotStyle:`background:${lv.dot}`, inkStyle:`color:${lv.ink}`, pick:()=>this.pickLevel(k)};
+    });
+    return {
+      messages: s.messages,
+      analyzing: s.analyzing,
+      toast: s.toast,
+      input: s.input,
+      note: s.note,
+      noteOpen: s.noteOpen,
+      overrideOpen: s.overrideOpen,
+      overridden: s.overridden,
+      analysisKey: s.analysisKey,
+      vitals,
+      reasoning: s.reasoning,
+      missing: s.missing,
+      hasMissing: s.missing.length>0,
+      noMissing: s.missing.length===0,
+      nextSteps: s.nextSteps.map((text,i)=>({num:String(i+1).padStart(2,'0'), text})),
+      confidence: s.confidence,
+      confidencePct: s.confidence + '%',
+      levelLabel: L.label,
+      levelSub: L.sub,
+      levelOptions,
+      recCardStyle: `background:${L.cardBg};border:1.5px solid ${L.cardBd}`,
+      recDotStyle: `background:${L.dot}`,
+      recInkStyle: `color:${L.ink}`,
+      acceptBtnStyle: s.accepted
+        ? `background:#e2e4e8;border:1.5px solid #b7bcc4;color:#565b63`
+        : `background:${L.aBg};border:1.5px solid ${L.aBd};color:${L.aInk}`,
+      acceptLabel: s.accepted ? `✓ ${L.label} confirmado` : `✓ Aceptar ${L.label}`,
+      analyzeLabel: s.analyzing ? 'Analizando…' : 'En seguimiento',
+      analyzeDot: s.analyzing ? '#c0271a' : '#3f9a4d',
+      analyzeAnim: s.analyzing ? 'softpulse 1s ease infinite' : 'none',
+      send:this.send, accept:this.accept, toggleOverride:this.toggleOverride, toggleNote:this.toggleNote,
+      onInput:this.onInput, onNote:this.onNote, onKey:this.onKey,
+    };
+  }
+}
+</script>
