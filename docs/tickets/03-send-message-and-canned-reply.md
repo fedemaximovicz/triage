@@ -1,7 +1,7 @@
 # 03 — Clinician sends a message and gets a canned placeholder AI reply
 
 Blocked by: 02
-Status: open
+Status: done
 
 ## Goal
 The composer becomes functional: the clinician types a message, it appears in the

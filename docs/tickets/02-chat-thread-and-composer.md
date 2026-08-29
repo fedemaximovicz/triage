@@ -1,7 +1,7 @@
 # 02 — Chat column shows the seeded placeholder conversation and composer
 
 Blocked by: 01
-Status: open
+Status: done
 
 ## Goal
 The center column renders the "Nuevo caso" conversation faithful to the mockup:

@@ -1,7 +1,7 @@
 # 05 — Clinician can Anular (pick Manchester level), Aceptar, and add a Nota
 
 Blocked by: 04
-Status: open
+Status: done
 
 ## Goal
 The recommendation panel's actions become functional as pure front-end state:
