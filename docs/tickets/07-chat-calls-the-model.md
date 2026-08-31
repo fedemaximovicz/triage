@@ -1,7 +1,7 @@
 # 07 — Chat sends to the model instead of the canned reply
 
 Blocked by: 06
-Status: open
+Status: done
 
 ## Goal
 `Chat.tsx` calls the `chat()` server action instead of faking a reply with

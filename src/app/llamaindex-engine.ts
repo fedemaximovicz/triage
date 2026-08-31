@@ -1,16 +1,24 @@
-"use server";
-
-import { GoogleGenAI, type Chat } from "@google/genai";
-
-// Server-side model access, calling @google/genai directly (ADR 0004). The
-// LlamaIndex-based version (ADR 0002, ticket 06) is parked, unused, in
-// llamaindex-engine.ts for when Ollama is installed — @llamaindex/google's
-// Gemini provider can't reach a model this API key still supports (see ADR
-// 0004 for the exact crash).
+// Parked, not wired up (ADR 0004). This is ticket 06's LlamaIndex-based chat
+// engine, unchanged except for the recommendation contract added in ADR 0003.
+// Nothing imports this file — actions.ts calls @google/genai directly instead,
+// because @llamaindex/google's Gemini provider can't reach a model this API
+// key still supports (see ADR 0004 for the exact crash). This file exists so
+// the LlamaIndex path doesn't have to be rebuilt from scratch once Ollama is
+// installed and the project reconnects to it, per ADR 0002's original intent.
 //
-// Debt: chatSession below is a module-level singleton shared by every request
-// and every case. Faithful to the base project's shape, wrong once several
-// cases are open.
+// To bring this back: wire chat/processDocs/resetChatEngine below into
+// actions.ts's exports in place of the @google/genai versions. The
+// Recommendation contract (ADR 0003) is duplicated here rather than imported
+// from actions.ts so this file stays self-contained while parked.
+
+import {
+  ContextChatEngine,
+  Document,
+  Settings,
+  SimpleChatEngine,
+  VectorStoreIndex,
+} from "llamaindex";
+import { GEMINI_MODEL, Gemini, GeminiEmbedding } from "@llamaindex/google";
 
 interface LCDoc {
   pageContent: string;
@@ -127,17 +135,18 @@ function extractJsonBlock(text: string): { prose: string; jsonText: string | nul
   return { prose: text.slice(0, last.index).trim(), jsonText: last[1].trim() };
 }
 
-// gemini-2.5-flash (ticket 06's original pin) is deprecated for this API key;
-// Google's own 404 pointed at this replacement (ADR 0004).
-const MODEL = "gemini-3.6-flash";
+// Chunking for the future RAG path. Settings has no chunkOverlap in 0.12.1 (the
+// base project set 20); it needs a node parser, deferred to the RAG ticket.
+const CHUNK_SIZE = 300;
+const SIMILARITY_TOP_K = 2;
 
-let ai: GoogleGenAI | null = null;
+let modelsReady = false;
 
 // Lazy rather than module-level (the base project built the LLM at import time):
 // a missing key would otherwise throw while the module loads, taking down every
 // route instead of just this action.
-function ensureClient(): GoogleGenAI {
-  if (ai) return ai;
+function ensureModels() {
+  if (modelsReady) return;
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -146,20 +155,41 @@ function ensureClient(): GoogleGenAI {
     );
   }
 
-  ai = new GoogleGenAI({ apiKey });
-  return ai;
+  // The provider defaults to GOOGLE_API_KEY, so the key is passed explicitly —
+  // to the embedding too, which has its own separate default.
+  Settings.llm = new Gemini({
+    model: GEMINI_MODEL.GEMINI_2_5_FLASH_LATEST,
+    temperature: 0,
+    apiKey,
+  });
+  Settings.embedModel = new GeminiEmbedding({ apiKey });
+  Settings.chunkSize = CHUNK_SIZE;
+
+  modelsReady = true;
 }
 
-let chatSession: Chat | null = null;
+let chatEngine: ContextChatEngine | null = null;
+let simpleEngine: SimpleChatEngine | null = null;
 
-function activeSession(): Chat {
-  chatSession ??= ensureClient().chats.create({ model: MODEL, config: { temperature: 0 } });
-  return chatSession;
+// ContextChatEngine once documents are indexed, SimpleChatEngine before that.
+// Both implement BaseChatEngine, so chat() does not care which it gets.
+function activeEngine(): ContextChatEngine | SimpleChatEngine {
+  if (chatEngine) return chatEngine;
+  simpleEngine ??= new SimpleChatEngine({ llm: Settings.llm });
+  return simpleEngine;
 }
 
 export async function chat(query: string) {
-  const result = await activeSession().sendMessage({ message: buildInstructedMessage(query) });
-  const rawText = result.text ?? "";
+  ensureModels();
+
+  const result = await activeEngine().chat({ message: buildInstructedMessage(query) });
+  const content = result.message.content;
+
+  // EngineResponse.response is deprecated in 0.12.1; read the message instead.
+  const rawText =
+    typeof content === "string"
+      ? content
+      : content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
 
   const { prose, jsonText } = extractJsonBlock(rawText);
 
@@ -177,12 +207,24 @@ export async function chat(query: string) {
 }
 
 export async function processDocs(lcDocs: LCDoc[]) {
-  // Not implemented against @google/genai directly (ADR 0004) — RAG was
-  // already out of scope (ticket 06/08). The working version lives in
-  // llamaindex-engine.ts; wire that back in once Ollama is available.
-  void lcDocs;
+  if (lcDocs.length === 0) return;
+  ensureModels();
+
+  const docs = lcDocs.map(
+    (lcDoc) => new Document({ text: lcDoc.pageContent, metadata: lcDoc.metadata }),
+  );
+
+  // fromDocuments reads the LLM and embed model off Settings — the
+  // serviceContext argument the base project passed no longer exists.
+  const index = await VectorStoreIndex.fromDocuments(docs);
+  const retriever = index.asRetriever({ similarityTopK: SIMILARITY_TOP_K });
+
+  if (chatEngine) await chatEngine.reset();
+  chatEngine = new ContextChatEngine({ retriever, chatModel: Settings.llm });
 }
 
 export async function resetChatEngine() {
-  chatSession = null;
+  // reset() returns a promise in 0.12.1; the base project called it synchronously.
+  if (chatEngine) await chatEngine.reset();
+  if (simpleEngine) await simpleEngine.reset();
 }

@@ -1,7 +1,7 @@
 # 06 — Server action talks to Gemini through LlamaIndex
 
 Blocked by: none
-Status: open
+Status: done
 
 ## Goal
 `src/app/actions.ts` exists as a server action module that sends a clinician's

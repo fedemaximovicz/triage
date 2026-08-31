@@ -1,7 +1,7 @@
 # 08 — Recommendation panel is driven by the model
 
 Blocked by: 07
-Status: open
+Status: done
 
 ## Goal
 The model returns structured triage data alongside its conversational reply, and
@@ -45,12 +45,42 @@ the recommendation panel renders that instead of placeholders.
   bug. Consider showing them as "leído de la conversación" and easy to correct.
 
 ## Open questions
-- One model call returning both prose and structure, or a second call dedicated
-  to the panel? One call is cheaper and keeps them consistent; two keep the chat
-  fast and let the panel update independently.
-- Does the panel recompute on every message, or only when the clinician asks for
-  it? Recomputing on every message means the level can flicker mid-conversation.
+- ~~One model call returning both prose and structure, or a second call
+  dedicated to the panel?~~ Resolved: one call (ADR 0003).
+- ~~Does the panel recompute on every message, or only when the clinician asks
+  for it?~~ Resolved: every message (ADR 0003).
 
 ## Out of scope
 - PDF attachments and real RAG.
 - Persisting cases; per-case history.
+
+## Progress
+Backend slice done, verified live end to end (real Gemini reply + a
+correctly-shaped `recommendation`, both malformed-JSON and API-error paths
+confirmed to leave the composer usable):
+- `docs/adr/0003-recommendation-json-contract.md` — the JSON contract and the
+  one-call/prompt-plus-parse approach.
+- `src/app/actions.ts` — `Recommendation` type, per-field validator (`nivel`
+  rejected-not-coerced), the instruction block appended to every message, the
+  fenced-JSON extractor, and `chat()` returning `{ response, recommendation }`.
+- `docs/adr/0004-direct-gemini-via-google-genai.md` — mid-ticket pivot: calls
+  `@google/genai` directly instead of through LlamaIndex, because
+  `@llamaindex/google`'s Gemini provider has no path to a model this API key
+  still supports (hardcoded model-metadata table, confirmed stale even in
+  npm's latest release). The LlamaIndex implementation is preserved, unused,
+  in `src/app/llamaindex-engine.ts` for the eventual Ollama switch.
+
+Still open (next session):
+- `RecommendationPanel.tsx` still renders placeholders — nothing reads
+  `recommendation` yet.
+- Lifting state so `Chat` and `RecommendationPanel` (currently unconnected
+  siblings) can share the latest recommendation.
+- Per-field placeholder fallback in the panel; malformed/`null` recommendation
+  surfaced without wiping the panel's current state.
+- Override-wins-over-AI precedence (Anular vs. a later AI `nivel`).
+- The level card's default-becomes-colored behavior (spec Q15b/Q16b reversal,
+  see Notes above) — not yet implemented, panel is still neutral-only.
+- Note from live testing: the model returned `confianza` as a 0–1 fraction
+  (e.g. `0.95`) rather than the contract example's implied 0–100 percentage.
+  The validator accepts either (it only checks "finite number"); the panel
+  step should pick one convention and normalize before display.
