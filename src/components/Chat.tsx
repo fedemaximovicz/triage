@@ -2,14 +2,21 @@
 
 import { useEffect, useState } from "react";
 import { chat, resetChatEngine } from "@/app/actions";
+import type { Recommendation } from "@/components/CaseView";
 
 // Center column — conversation. Ported from docs/reference/mockup-nuevo-caso.html
-// (ticket 02); the canned AI reply does not update the recommendation panel
-// (ADR 0001, ticket 03).
+// (ticket 02). Each successful chat() call hands its recommendation up to
+// CaseView (ticket 09) — a null recommendation or a failed call reports
+// nothing, per ADR 0005: the panel is left untouched, the failure surfaces
+// only in the thread below.
 
 type Message = { kind: "nurse" | "ai"; text: string };
 
-export default function Chat() {
+export default function Chat({
+  onRecommendation,
+}: {
+  onRecommendation: (recommendation: Recommendation | null) => void;
+}) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
@@ -28,8 +35,9 @@ export default function Chat() {
     setInput("");
     setAnalyzing(true);
     try {
-      const { response } = await chat(text);
+      const { response, recommendation } = await chat(text);
       setMessages((prev) => [...prev, { kind: "ai", text: response }]);
+      onRecommendation(recommendation);
     } catch {
       setMessages((prev) => [
         ...prev,

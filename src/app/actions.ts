@@ -69,7 +69,7 @@ function validateRecommendation(raw: unknown): Recommendation | null {
   if (typeof obj.antecedentes === "string") recommendation.antecedentes = obj.antecedentes;
 
   if (Array.isArray(obj.signosVitales)) {
-    const vitals = obj.signosVitales.filter(isVital);
+    const vitals = obj.signosVitales.filter(isVital).slice(0, 5);
     if (vitals.length > 0) recommendation.signosVitales = vitals;
   }
 
@@ -83,9 +83,15 @@ function validateRecommendation(raw: unknown): Recommendation | null {
     recommendation.confianza = obj.confianza;
   }
 
-  if (isStringArray(obj.razonamiento)) recommendation.razonamiento = obj.razonamiento;
-  if (isStringArray(obj.informacionFaltante)) recommendation.informacionFaltante = obj.informacionFaltante;
-  if (isStringArray(obj.proximosPasos)) recommendation.proximosPasos = obj.proximosPasos;
+  if (isStringArray(obj.razonamiento) && obj.razonamiento.length > 0) {
+    recommendation.razonamiento = obj.razonamiento;
+  }
+  if (isStringArray(obj.informacionFaltante) && obj.informacionFaltante.length > 0) {
+    recommendation.informacionFaltante = obj.informacionFaltante;
+  }
+  if (isStringArray(obj.proximosPasos) && obj.proximosPasos.length > 0) {
+    recommendation.proximosPasos = obj.proximosPasos;
+  }
 
   return recommendation;
 }
@@ -110,7 +116,8 @@ Instrucciones para tu respuesta (no se las menciones al clínico):
   "informacionFaltante": ["string"],
   "proximosPasos": ["string"]
 }
-3. "nivel" tiene que ser exactamente una de esas cinco palabras en minúscula, o tiene que estar ausente si no podés determinarlo — nunca otro valor.`;
+3. "nivel" tiene que ser exactamente una de esas cinco palabras en minúscula, o tiene que estar ausente si no podés determinarlo — nunca otro valor.
+4. "confianza" tiene que ser un número entero de 0 a 100 (por ejemplo 85), nunca una fracción de 0 a 1.`;
 }
 
 const JSON_FENCE = /```(?:json)?\s*([\s\S]*?)```/gi;
