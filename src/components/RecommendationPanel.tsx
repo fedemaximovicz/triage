@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { Recommendation } from "@/components/CaseView";
 
 // Right column — recommendation panel. Ported from
 // docs/reference/mockup-nuevo-caso.html (ticket 04 display, ticket 05
@@ -94,8 +95,17 @@ const LEVELS: Record<ManchesterKey, ManchesterLevel> = {
 const ORDER: ManchesterKey[] = ["rojo", "naranja", "amarillo", "verde", "azul"];
 
 const TOAST_DURATION_MS = 2800;
+const ANULAR_CONFIRM_MS = 4000;
 
-export default function RecommendationPanel() {
+// ADR 0005: confianza is interpreted 0–100; a value ≤ 1 is a fraction
+// (0.95 → 95%), and exactly 1 is discarded — it's genuinely ambiguous
+// between "1%" and "100%", and guessing puts a wrong number on the card.
+function normalizeConfianza(value: number | undefined): number | null {
+  if (value === undefined || value === 1) return null;
+  return Math.round(value <= 1 ? value * 100 : value);
+}
+
+export default function RecommendationPanel({ recommendation }: { recommendation: Recommendation | null }) {
   const [levelKey, setLevelKey] = useState<ManchesterKey | null>(null);
   const [overridden, setOverridden] = useState(false);
   const [accepted, setAccepted] = useState(false);
@@ -104,12 +114,58 @@ export default function RecommendationPanel() {
   const [note, setNote] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Anular after Aceptar needs a second click on the same button (ADR 0005)
+  // instead of blocking or a modal — this holds that one-shot confirmation.
+  const [anularConfirmPending, setAnularConfirmPending] = useState(false);
+  const anularConfirmTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  // What the panel is currently showing, reconciled from each turn's
+  // recommendation (ADR 0005). Starts empty so every field renders its
+  // placeholder until the first valid recommendation arrives.
+  const [display, setDisplay] = useState<Recommendation>({});
+  // Tracks which `recommendation` prop value `display` was last reconciled
+  // from, so the merge below runs once per incoming turn during render
+  // (React's "adjusting state when a prop changes" pattern) rather than in
+  // an effect, which would cost an extra render for no benefit here.
+  const [reconciledFrom, setReconciledFrom] = useState(recommendation);
 
   useEffect(() => {
-    return () => clearTimeout(toastTimeout.current);
+    return () => {
+      clearTimeout(toastTimeout.current);
+      clearTimeout(anularConfirmTimeout.current);
+    };
   }, []);
 
-  const level = levelKey ? LEVELS[levelKey] : null;
+  // ADR 0005: a valid recommendation replaces every field the panel was
+  // showing; a field this turn didn't supply falls back to its placeholder,
+  // not the previous turn's value. nivel and confianza are the one
+  // exception — they persist together when this turn didn't re-triage.
+  // A null recommendation (malformed JSON, or Chat not reporting one on a
+  // failed call) leaves `display` untouched.
+  if (recommendation !== reconciledFrom) {
+    setReconciledFrom(recommendation);
+    if (recommendation) {
+      const keepLevel = recommendation.nivel === undefined;
+      setDisplay({
+        ...recommendation,
+        nivel: keepLevel ? display.nivel : recommendation.nivel,
+        confianza: keepLevel ? display.confianza : recommendation.confianza,
+      });
+    }
+  }
+
+  // ADR 0005 precedence: once a human decision is in force (Anular or
+  // Aceptar), no later AI turn moves the card — it shows `levelKey`, not
+  // the AI's `display.nivel`. Before any decision, the card shows the AI's
+  // suggestion provisionally. `shownLevelKey` is also what Aceptar fixes
+  // when clicked, whichever of the two is currently on screen.
+  const aiLevelKey = display.nivel ?? null;
+  const humanDecisionActive = overridden || accepted;
+  const shownLevelKey = levelKey ?? aiLevelKey;
+  const cardLevel = shownLevelKey ? LEVELS[shownLevelKey] : null;
+  const isProvisional = !humanDecisionActive && aiLevelKey !== null;
+  const aiSuggestsDifferently = humanDecisionActive && aiLevelKey !== null && aiLevelKey !== levelKey;
+  const confianzaPct = normalizeConfianza(display.confianza);
 
   const showToast = (message: string) => {
     setToast(message);
@@ -122,18 +178,53 @@ export default function RecommendationPanel() {
     setOverridden(true);
     setAccepted(false);
     setOverrideOpen(false);
+    setAnularConfirmPending(false);
     showToast(`Nivel anulado → ${LEVELS[key].label}`);
   };
 
   const accept = () => {
+    if (!shownLevelKey) return;
+    setLevelKey(shownLevelKey);
     setAccepted(true);
     setOverrideOpen(false);
-    showToast(`Triage confirmado · ${level ? level.label : "[nivel]"}`);
+    setAnularConfirmPending(false);
+    clearTimeout(anularConfirmTimeout.current);
+    showToast(`Triage confirmado · ${LEVELS[shownLevelKey].label}`);
+  };
+
+  // Anular is always available (ADR 0005 rejects blocking it after
+  // Aceptar), but un-confirming a confirmed triage needs a second click on
+  // this same button rather than opening the picker on the first one.
+  const handleAnularClick = () => {
+    if (overrideOpen) {
+      setOverrideOpen(false);
+      return;
+    }
+    if (accepted && !anularConfirmPending) {
+      setAnularConfirmPending(true);
+      clearTimeout(anularConfirmTimeout.current);
+      anularConfirmTimeout.current = setTimeout(() => setAnularConfirmPending(false), ANULAR_CONFIRM_MS);
+      return;
+    }
+    clearTimeout(anularConfirmTimeout.current);
+    setAnularConfirmPending(false);
+    setOverrideOpen(true);
+    setNoteOpen(false);
   };
 
   const toggleNote = () => {
     setNoteOpen((open) => !open);
     setOverrideOpen(false);
+  };
+
+  const reiniciarCaso = () => {
+    setLevelKey(null);
+    setOverridden(false);
+    setAccepted(false);
+    setOverrideOpen(false);
+    setAnularConfirmPending(false);
+    clearTimeout(anularConfirmTimeout.current);
+    setDisplay({});
   };
 
   return (
@@ -148,25 +239,28 @@ export default function RecommendationPanel() {
         <div className="mb-4 flex items-start gap-3.5">
           <div className="h-[52px] w-[52px] flex-none rounded-full border border-black/[0.15] bg-[image:repeating-linear-gradient(135deg,#dcdee2_0_6px,#d3d6db_6px_12px)]" />
           <div className="pt-0.5">
-            <div className="text-[21px] font-bold tracking-[-0.01em]">[identidad del paciente]</div>
-            <div className="mt-[3px] text-[13px] text-[#7c828c]">[historia · llegada]</div>
+            <div className="text-[21px] font-bold tracking-[-0.01em]">Paciente sin identificar</div>
+            <div className="mt-[3px] text-[13px] text-[#7c828c]">Sin datos de admisión</div>
           </div>
         </div>
         <div className="flex justify-between gap-3 py-[7px] text-[13.5px]">
-          <span className="text-[#7c828c]">Motivo</span>
-          <span className="text-right font-bold">[motivo de consulta]</span>
+          <span className="flex-none text-[#7c828c]">Motivo</span>
+          <span className="min-w-0 flex-1 text-right font-bold">{display.motivo ?? "[motivo de consulta]"}</span>
         </div>
         <div className="flex justify-between gap-3 py-[7px] text-[13.5px]">
-          <span className="text-[#7c828c]">Antecedentes</span>
-          <span className="text-right font-bold">[antecedentes]</span>
+          <span className="flex-none text-[#7c828c]">Antecedentes</span>
+          <span className="min-w-0 flex-1 text-right font-bold">
+            {display.antecedentes ?? "[antecedentes]"}
+          </span>
         </div>
 
         {/* Vitals */}
-        <div className="mt-[18px] mb-[11px] text-[12px] font-bold tracking-[0.09em] text-[#7c828c]">
-          SIGNOS VITALES
+        <div className="mt-[18px] mb-[11px] flex items-baseline justify-between">
+          <span className="text-[12px] font-bold tracking-[0.09em] text-[#7c828c]">SIGNOS VITALES</span>
+          <span className="text-[11px] italic text-[#9aa0aa]">leído de la conversación</span>
         </div>
         <div className="grid grid-cols-3 gap-2.5">
-          {VITALS.map((v, i) => (
+          {(display.signosVitales ?? VITALS).map((v, i) => (
             <div key={i} className="rounded-[10px] border-[1.5px] border-[#d2d5da] bg-[#f7f8f9] px-3 py-2.5">
               <div className="mb-[3px] text-[11.5px] text-[#7c828c]">{v.label}</div>
               <div>
@@ -184,22 +278,38 @@ export default function RecommendationPanel() {
           <span className="text-[12px] italic text-[#9aa0aa]">se actualiza en vivo</span>
         </div>
 
-        {/* Level card — neutral until override */}
-        {level ? (
+        {/* Level card — AI suggestion shows provisionally until a human
+            decision fixes it in full-weight colour (ADR 0005, reverses
+            spec Q15b/Q16b) */}
+        {cardLevel ? (
           <div
             className="flex items-center gap-[15px] rounded-[13px] px-5 py-[17px]"
-            style={{ background: level.cardBg, border: `1.5px solid ${level.cardBd}` }}
+            style={{
+              background: cardLevel.cardBg,
+              border: `1.5px ${isProvisional ? "dashed" : "solid"} ${cardLevel.cardBd}`,
+            }}
           >
-            <div className="h-[22px] w-[22px] flex-none rounded-full" style={{ background: level.dot }} />
+            <div
+              className="h-[22px] w-[22px] flex-none rounded-full"
+              style={{ background: cardLevel.dot, opacity: isProvisional ? 0.7 : 1 }}
+            />
             <div>
-              <div className="text-[26px] leading-none font-bold tracking-[0.02em]" style={{ color: level.ink }}>
-                {level.label}
+              <div
+                className="text-[26px] leading-none font-bold tracking-[0.02em]"
+                style={{ color: cardLevel.ink, opacity: isProvisional ? 0.85 : 1 }}
+              >
+                {cardLevel.label}
               </div>
-              <div className="mt-1 text-[14px] text-[#565b63]">{level.sub}</div>
+              <div className="mt-1 text-[14px] text-[#565b63]">{cardLevel.sub}</div>
+              {isProvisional && (
+                <div className="mt-1 text-[11px] font-semibold tracking-[0.04em] text-[#9aa0aa] uppercase">
+                  Sugerido por IA · sin confirmar
+                </div>
+              )}
             </div>
-            {overridden && (
+            {humanDecisionActive && (
               <div className="ml-auto text-right text-[11px] leading-[1.3] font-semibold text-[#7c828c]">
-                anulado
+                {accepted ? "confirmado" : "anulado"}
                 <br />
                 por clínico
               </div>
@@ -215,20 +325,40 @@ export default function RecommendationPanel() {
           </div>
         )}
 
-        {/* Confidence */}
-        <div className="mt-4 mb-[7px] flex items-center justify-between">
-          <span className="text-[13.5px] font-semibold">Confianza</span>
-          <span className="font-mono text-[15px] font-bold">[--]%</span>
-        </div>
-        <div className="relative h-[13px] overflow-hidden rounded-[7px] border border-black/[0.08] bg-[#dcdee3]">
-          <div className="h-full w-0 rounded-[7px] bg-[#9aa0aa] transition-[width]" />
-          <div className="pointer-events-none absolute inset-0 bg-[image:repeating-linear-gradient(90deg,transparent_0_9.2%,#f5f6f7_9.2%,#f5f6f7_10%)]" />
-        </div>
+        {aiSuggestsDifferently && aiLevelKey && (
+          <div className="mt-2 text-[12.5px] text-[#7c828c]">
+            IA sugiere:{" "}
+            <span className="font-semibold" style={{ color: LEVELS[aiLevelKey].ink }}>
+              {LEVELS[aiLevelKey].label}
+            </span>
+          </div>
+        )}
+
+        {/* Confidence — hidden once a human decision is in force (ADR 0005):
+            that number is the model's self-report, and showing it next to a
+            level a person chose would attribute it to the person. */}
+        {!humanDecisionActive && (
+          <>
+            <div className="mt-4 mb-[7px] flex items-center justify-between">
+              <span className="text-[13.5px] font-semibold">Confianza</span>
+              <span className="font-mono text-[15px] font-bold">
+                {confianzaPct !== null ? `${confianzaPct}%` : "[--]%"}
+              </span>
+            </div>
+            <div className="relative h-[13px] overflow-hidden rounded-[7px] border border-black/[0.08] bg-[#dcdee3]">
+              <div
+                className="h-full rounded-[7px] bg-[#9aa0aa] transition-[width]"
+                style={{ width: confianzaPct !== null ? `${confianzaPct}%` : "0%" }}
+              />
+              <div className="pointer-events-none absolute inset-0 bg-[image:repeating-linear-gradient(90deg,transparent_0_9.2%,#f5f6f7_9.2%,#f5f6f7_10%)]" />
+            </div>
+          </>
+        )}
 
         {/* Reasoning */}
         <div className="mt-5 mb-[9px] text-[12px] font-bold tracking-[0.08em] text-[#565b63]">RAZONAMIENTO CLÍNICO</div>
         <div className="flex flex-col gap-[11px]">
-          {REASONING.map((text, i) => (
+          {(display.razonamiento ?? REASONING).map((text, i) => (
             <div key={i} className="flex gap-2.5 text-[14.5px] leading-[1.45] text-[#2e3138]">
               <span className="flex-none font-bold text-[#a41f14]">›</span>
               <span>{text}</span>
@@ -239,7 +369,7 @@ export default function RecommendationPanel() {
         {/* Missing info */}
         <div className="mt-5 mb-[9px] text-[12px] font-bold tracking-[0.08em] text-[#565b63]">INFORMACIÓN FALTANTE</div>
         <div className="flex flex-col gap-[9px]">
-          {MISSING.map((text, i) => (
+          {(display.informacionFaltante ?? MISSING).map((text, i) => (
             <div key={i} className="flex gap-2.5 text-[14.5px] leading-[1.45] text-[#2e3138]">
               <span className="mt-[7px] h-1.5 w-1.5 flex-none rounded-full border-[1.6px] border-[#b98a2a]" />
               <span>{text}</span>
@@ -250,7 +380,7 @@ export default function RecommendationPanel() {
         {/* Next steps */}
         <div className="mt-5 mb-[9px] text-[12px] font-bold tracking-[0.08em] text-[#565b63]">PRÓXIMOS PASOS</div>
         <div className="flex flex-col gap-[11px]">
-          {NEXT_STEPS.map((text, i) => (
+          {(display.proximosPasos ?? NEXT_STEPS).map((text, i) => (
             <div key={i} className="flex gap-[11px] text-[14.5px] leading-[1.45] text-[#2e3138]">
               <span className="mt-0.5 flex-none font-mono text-[11px] font-bold text-[#7c828c]">
                 {String(i + 1).padStart(2, "0")}
@@ -302,22 +432,21 @@ export default function RecommendationPanel() {
           onClick={accept}
           className="mb-2.5 w-full rounded-xl py-[15px] text-[16px] font-bold"
           style={
-            accepted || !level
+            accepted || !cardLevel
               ? { background: "#e2e4e8", border: "1.5px solid #b7bcc4", color: "#565b63" }
-              : { background: level.aBg, border: `1.5px solid ${level.aBd}`, color: level.aInk }
+              : { background: cardLevel.aBg, border: `1.5px solid ${cardLevel.aBd}`, color: cardLevel.aInk }
           }
         >
-          {accepted ? `✓ ${level ? level.label : "[nivel]"} confirmado` : `✓ Aceptar ${level ? level.label : "[nivel]"}`}
+          {accepted
+            ? `✓ ${cardLevel ? cardLevel.label : "[nivel]"} confirmado`
+            : `✓ Aceptar ${cardLevel ? cardLevel.label : "[nivel]"}`}
         </button>
         <div className="flex gap-2.5">
           <button
-            onClick={() => {
-              setOverrideOpen((open) => !open);
-              setNoteOpen(false);
-            }}
+            onClick={handleAnularClick}
             className="flex-1 rounded-[11px] border-[1.5px] border-[#d2d5da] bg-[#f7f8f9] py-[13px] text-[14.5px] font-semibold text-[#2e3138] hover:bg-[#e9ebee]"
           >
-            ⇄ Anular…
+            {anularConfirmPending ? "⇄ ¿Anular triage confirmado?" : "⇄ Anular…"}
           </button>
           <button
             onClick={toggleNote}
@@ -326,6 +455,12 @@ export default function RecommendationPanel() {
             + Nota
           </button>
         </div>
+        <button
+          onClick={reiniciarCaso}
+          className="mt-2.5 w-full text-center text-[12.5px] font-semibold text-[#9aa0aa] hover:text-[#2e3138]"
+        >
+          ↺ Reiniciar caso
+        </button>
       </div>
     </aside>
   );

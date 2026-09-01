@@ -1,42 +1,51 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-
-const REPLY_DELAY_MS = 1600;
+import { useEffect, useState } from "react";
+import { chat, resetChatEngine } from "@/app/actions";
+import type { Recommendation } from "@/components/CaseView";
 
 // Center column — conversation. Ported from docs/reference/mockup-nuevo-caso.html
-// (ticket 02); the canned AI reply does not update the recommendation panel
-// (ADR 0001, ticket 03).
+// (ticket 02). Each successful chat() call hands its recommendation up to
+// CaseView (ticket 09) — a null recommendation or a failed call reports
+// nothing, per ADR 0005: the panel is left untouched, the failure surfaces
+// only in the thread below.
 
 type Message = { kind: "nurse" | "ai"; text: string };
 
-const SEEDED_MESSAGES: Message[] = [
-  { kind: "nurse", text: "[mensaje del clínico]" },
-  { kind: "ai", text: "[respuesta IA]" },
-  { kind: "nurse", text: "[mensaje del clínico]" },
-  { kind: "ai", text: "[respuesta IA]" },
-];
-
-export default function Chat() {
-  const [messages, setMessages] = useState<Message[]>(SEEDED_MESSAGES);
+export default function Chat({
+  onRecommendation,
+}: {
+  onRecommendation: (recommendation: Recommendation | null) => void;
+}) {
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
-  const replyTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
+  // A reload resets this component's state but not the server's module-level
+  // chat engine (ticket 07) — reset it explicitly so the model's memory can't
+  // outlive the thread the clinician sees.
   useEffect(() => {
-    return () => clearTimeout(replyTimeout.current);
+    resetChatEngine();
   }, []);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const text = input.trim();
     if (!text || analyzing) return;
     setMessages((prev) => [...prev, { kind: "nurse", text }]);
     setInput("");
     setAnalyzing(true);
-    replyTimeout.current = setTimeout(() => {
-      setMessages((prev) => [...prev, { kind: "ai", text: "[respuesta IA]" }]);
+    try {
+      const { response, recommendation } = await chat(text);
+      setMessages((prev) => [...prev, { kind: "ai", text: response }]);
+      onRecommendation(recommendation);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { kind: "ai", text: "No se pudo obtener una respuesta. Intentá de nuevo." },
+      ]);
+    } finally {
       setAnalyzing(false);
-    }, REPLY_DELAY_MS);
+    }
   };
 
   return (

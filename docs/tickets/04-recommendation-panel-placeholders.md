@@ -1,7 +1,7 @@
 # 04 — Recommendation panel renders placeholders with a neutral level card
 
 Blocked by: 01
-Status: open
+Status: done
 
 ## Goal
 The right column renders the recommendation panel faithful to the mockup's

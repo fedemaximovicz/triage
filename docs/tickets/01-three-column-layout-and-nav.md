@@ -1,7 +1,7 @@
 # 01 — Nuevo caso screen renders with the three-column layout and left nav
 
 Blocked by: none
-Status: open
+Status: done
 
 ## Goal
 Opening the app renders the "Nuevo caso" screen as a three-column layout (left
