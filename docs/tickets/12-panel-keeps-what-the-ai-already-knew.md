@@ -1,7 +1,7 @@
 # 12 — The panel stops losing what the AI already knew
 
 Blocked by: none
-Status: todo
+Status: done
 
 ## Goal
 The per-turn instruction requires the model to repeat, in **every** JSON block,

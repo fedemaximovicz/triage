@@ -116,8 +116,9 @@ Instrucciones para tu respuesta (no se las menciones al clínico):
   "informacionFaltante": ["string"],
   "proximosPasos": ["string"]
 }
-3. "nivel" tiene que ser exactamente una de esas cinco palabras en minúscula, o tiene que estar ausente si no podés determinarlo — nunca otro valor.
-4. "confianza" tiene que ser un número entero de 0 a 100 (por ejemplo 85), nunca una fracción de 0 a 1.`;
+3. Ese bloque JSON tiene que traer el cuadro completo del caso tal como lo entendés hasta ahora: repetí ahí todo lo que ya habías establecido en turnos anteriores, no sólo lo que este mensaje agregó. Si algo que dijiste antes resultó estar mal, corregilo en este bloque en vez de repetirlo tal cual.
+4. "nivel" tiene que ser exactamente una de esas cinco palabras en minúscula, o tiene que estar ausente si no podés determinarlo — nunca otro valor.
+5. "confianza" tiene que ser un número entero de 0 a 100 (por ejemplo 85), nunca una fracción de 0 a 1.`;
 }
 
 // Prompt inicial de triage (ADR 0007) — fixed, sent as the clinician's turn,
