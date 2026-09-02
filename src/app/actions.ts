@@ -120,6 +120,17 @@ Instrucciones para tu respuesta (no se las menciones al clínico):
 4. "confianza" tiene que ser un número entero de 0 a 100 (por ejemplo 85), nunca una fracción de 0 a 1.`;
 }
 
+// Prompt inicial de triage (ADR 0007) — fixed, sent as the clinician's turn,
+// never rendered in the thread. Wording is this ticket's open question; expect
+// to adjust it after trying it against the real model.
+const INITIAL_PROMPT = `Estás por empezar la entrevista de triage con un clínico que acaba de abrir un caso nuevo. Todavía no sabés nada del paciente.
+
+Arrancá haciendo una sola pregunta — la más útil para empezar a entender el motivo de consulta. No presentes una lista ni pidas varios datos a la vez: es una conversación, un tema por vez.
+
+Seguí entrevistando así en cada turno, una pregunta a la vez, sin dejar de preguntar nunca por lo que todavía falta.
+
+Desde la primera respuesta que te dé algo útil, incluí también "nivel" y "confianza" con tu lectura provisional del caso hasta ese momento, aunque sea con poca información — no esperes a tener el cuadro completo para arriesgar una lectura.`;
+
 const JSON_FENCE = /```(?:json)?\s*([\s\S]*?)```/gi;
 
 // Splits the raw model text into the clinician-facing prose and the JSON
@@ -192,4 +203,12 @@ export async function processDocs(lcDocs: LCDoc[]) {
 
 export async function resetChatEngine() {
   chatSession = null;
+}
+
+// Iniciar caso (ADR 0006, ADR 0007): the reset is chained ahead of the
+// initial prompt, awaited first, so a new case is never answered with the
+// previous case still in the model's context.
+export async function openCase() {
+  await resetChatEngine();
+  return chat(INITIAL_PROMPT);
 }

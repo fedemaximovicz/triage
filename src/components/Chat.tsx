@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { chat, resetChatEngine } from "@/app/actions";
+import { useState } from "react";
+import { chat, openCase } from "@/app/actions";
 import type { Case, Recommendation } from "@/components/CaseView";
 
 // Center column — conversation. Ported from docs/reference/mockup-nuevo-caso.html
@@ -30,13 +30,6 @@ export default function Chat({
   const [analyzing, setAnalyzing] = useState(false);
   const composerDisabled = analyzing || !activeCase;
 
-  // A reload resets this component's state but not the server's module-level
-  // chat engine (ticket 07) — reset it explicitly so the model's memory can't
-  // outlive the thread the clinician sees.
-  useEffect(() => {
-    resetChatEngine();
-  }, []);
-
   const handleSend = async () => {
     const text = input.trim();
     if (!text || composerDisabled) return;
@@ -45,6 +38,23 @@ export default function Chat({
     setAnalyzing(true);
     try {
       const { response, recommendation } = await chat(text);
+      setMessages((prev) => [...prev, { kind: "ai", text: response }]);
+      onRecommendation(recommendation);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { kind: "ai", text: "No se pudo obtener una respuesta. Intentá de nuevo." },
+      ]);
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const handleStartCase = async () => {
+    onStartCase();
+    setAnalyzing(true);
+    try {
+      const { response, recommendation } = await openCase();
       setMessages((prev) => [...prev, { kind: "ai", text: response }]);
       onRecommendation(recommendation);
     } catch {
@@ -97,7 +107,7 @@ export default function Chat({
         ) : (
           <div className="flex h-full items-center justify-center">
             <button
-              onClick={onStartCase}
+              onClick={handleStartCase}
               className="flex items-center gap-1.5 rounded-[11px] border-[1.5px] border-[#262a30] bg-[#262a30] px-[26px] py-[14px] font-sans text-[16px] font-semibold text-[#f5f6f7] hover:bg-black"
             >
               Iniciar caso ▸
