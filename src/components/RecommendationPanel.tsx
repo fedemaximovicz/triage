@@ -105,7 +105,13 @@ function normalizeConfianza(value: number | undefined): number | null {
   return Math.round(value <= 1 ? value * 100 : value);
 }
 
-export default function RecommendationPanel({ recommendation }: { recommendation: Recommendation | null }) {
+export default function RecommendationPanel({
+  recommendation,
+  hasCase,
+}: {
+  recommendation: Recommendation | null;
+  hasCase: boolean;
+}) {
   const [levelKey, setLevelKey] = useState<ManchesterKey | null>(null);
   const [overridden, setOverridden] = useState(false);
   const [accepted, setAccepted] = useState(false);
@@ -135,6 +141,19 @@ export default function RecommendationPanel({ recommendation }: { recommendation
       clearTimeout(anularConfirmTimeout.current);
     };
   }, []);
+
+  // No case open (ticket 10): the panel dims and shows nothing but the
+  // placeholder — no reconciled data, no action buttons, same fact Chat's
+  // empty state reads from CaseView.
+  if (!hasCase) {
+    return (
+      <aside className="relative flex w-[clamp(360px,31vw,452px)] flex-none flex-col overflow-hidden bg-[#f5f6f7] opacity-50">
+        <div className="flex flex-1 items-center justify-center px-[26px] text-center text-[14.5px] text-[#7c828c]">
+          Iniciá un caso para ver la recomendación
+        </div>
+      </aside>
+    );
+  }
 
   // ADR 0005: a valid recommendation replaces every field the panel was
   // showing; a field this turn didn't supply falls back to its placeholder,

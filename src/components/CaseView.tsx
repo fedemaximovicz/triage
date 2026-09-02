@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Chat from "@/components/Chat";
 import RecommendationPanel from "@/components/RecommendationPanel";
 
@@ -26,13 +26,29 @@ export type Recommendation = {
   proximosPasos?: string[];
 };
 
+// A case's identity: the fact both Chat's header/composer and the panel's
+// empty state read to know whether a case is open (ticket 10). `null` means
+// no case, matching the app's opening state (ADR 0006).
+export type Case = { number: number; startedAt: Date };
+
+// In-memory counter, deliberately reset on reload (ADR 0006) — the real
+// number comes from a database row id once one exists.
+const FIRST_CASE_NUMBER = 2451;
+
 export default function CaseView() {
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
+  const [activeCase, setActiveCase] = useState<Case | null>(null);
+  const nextCaseNumber = useRef(FIRST_CASE_NUMBER);
+
+  const startCase = () => {
+    setActiveCase({ number: nextCaseNumber.current, startedAt: new Date() });
+    nextCaseNumber.current += 1;
+  };
 
   return (
     <>
-      <Chat onRecommendation={setRecommendation} />
-      <RecommendationPanel recommendation={recommendation} />
+      <Chat case={activeCase} onStartCase={startCase} onRecommendation={setRecommendation} />
+      <RecommendationPanel recommendation={recommendation} hasCase={activeCase !== null} />
     </>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { chat, resetChatEngine } from "@/app/actions";
-import type { Recommendation } from "@/components/CaseView";
+import type { Case, Recommendation } from "@/components/CaseView";
 
 // Center column — conversation. Ported from docs/reference/mockup-nuevo-caso.html
 // (ticket 02). Each successful chat() call hands its recommendation up to
@@ -12,14 +12,23 @@ import type { Recommendation } from "@/components/CaseView";
 
 type Message = { kind: "nurse" | "ai"; text: string };
 
+function formatTime(date: Date): string {
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
 export default function Chat({
+  case: activeCase,
+  onStartCase,
   onRecommendation,
 }: {
+  case: Case | null;
+  onStartCase: () => void;
   onRecommendation: (recommendation: Recommendation | null) => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
+  const composerDisabled = analyzing || !activeCase;
 
   // A reload resets this component's state but not the server's module-level
   // chat engine (ticket 07) — reset it explicitly so the model's memory can't
@@ -30,7 +39,7 @@ export default function Chat({
 
   const handleSend = async () => {
     const text = input.trim();
-    if (!text || analyzing) return;
+    if (!text || composerDisabled) return;
     setMessages((prev) => [...prev, { kind: "nurse", text }]);
     setInput("");
     setAnalyzing(true);
@@ -54,24 +63,47 @@ export default function Chat({
       <header className="flex flex-none items-start justify-between gap-4 border-b border-dashed border-black/[0.18] px-[30px] pt-[22px] pb-4">
         <div>
           <div className="text-[19px] text-[#7c828c]">
-            Casos / <span className="font-bold text-[#262a30]">Caso #2451 · Nuevo</span>
+            Casos
+            {activeCase && (
+              <>
+                {" / "}
+                <span className="font-bold text-[#262a30]">Caso #{activeCase.number}</span>
+              </>
+            )}
           </div>
-          <div className="mt-1 text-[13px] text-[#7c828c]">Iniciado 14:33 · Enf. M. Soto</div>
+          {activeCase && (
+            <div className="mt-1 text-[13px] text-[#7c828c]">
+              Iniciado {formatTime(activeCase.startedAt)} · Enf. M. Soto
+            </div>
+          )}
         </div>
-        <div className="flex flex-none items-center gap-2 whitespace-nowrap rounded-[22px] border border-black/20 bg-[#f7f8f9] px-[15px] py-2 text-[13.5px] font-medium">
-          <span className="h-2 w-2 rounded-full bg-[#3f9a4d]" />
-          En seguimiento
-        </div>
+        {activeCase && (
+          <div className="flex flex-none items-center gap-2 whitespace-nowrap rounded-[22px] border border-black/20 bg-[#f7f8f9] px-[15px] py-2 text-[13.5px] font-medium">
+            <span className="h-2 w-2 rounded-full bg-[#3f9a4d]" />
+            En seguimiento
+          </div>
+        )}
       </header>
 
       {/* Thread */}
       <div className="flex-1 overflow-y-auto px-[30px] pt-[26px] pb-3">
-        <div className="mx-auto flex max-w-[760px] flex-col gap-5">
-          {messages.map((m, i) =>
-            m.kind === "nurse" ? <NurseBubble key={i} text={m.text} /> : <AiBubble key={i} text={m.text} />,
-          )}
-          {analyzing && <TypingIndicator />}
-        </div>
+        {activeCase ? (
+          <div className="mx-auto flex max-w-[760px] flex-col gap-5">
+            {messages.map((m, i) =>
+              m.kind === "nurse" ? <NurseBubble key={i} text={m.text} /> : <AiBubble key={i} text={m.text} />,
+            )}
+            {analyzing && <TypingIndicator />}
+          </div>
+        ) : (
+          <div className="flex h-full items-center justify-center">
+            <button
+              onClick={onStartCase}
+              className="flex items-center gap-1.5 rounded-[11px] border-[1.5px] border-[#262a30] bg-[#262a30] px-[26px] py-[14px] font-sans text-[16px] font-semibold text-[#f5f6f7] hover:bg-black"
+            >
+              Iniciar caso ▸
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Composer */}
@@ -90,7 +122,7 @@ export default function Chat({
                   handleSend();
                 }
               }}
-              disabled={analyzing}
+              disabled={composerDisabled}
               placeholder="Describe el estado del paciente…"
               className="min-w-0 flex-1 border-none bg-transparent py-2 font-sans text-[16px] text-[#262a30] outline-none disabled:opacity-50"
             />
@@ -99,7 +131,7 @@ export default function Chat({
             </button>
             <button
               onClick={handleSend}
-              disabled={analyzing}
+              disabled={composerDisabled}
               className="flex items-center gap-1.5 rounded-[11px] border-[1.5px] border-[#262a30] bg-[#262a30] px-[22px] py-[11px] font-sans text-[15px] font-semibold text-[#f5f6f7] hover:bg-black disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-[#262a30]"
             >
               Enviar ▸
