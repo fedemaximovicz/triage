@@ -1,7 +1,7 @@
 # 13 — A failed opening turn can be retried
 
 Blocked by: 11
-Status: todo
+Status: done
 
 ## Goal
 When the opening turn fails — no `GEMINI_API_KEY`, network down, model 404 —

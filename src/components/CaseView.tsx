@@ -45,10 +45,24 @@ export default function CaseView() {
     nextCaseNumber.current += 1;
   };
 
+  // Descartar caso (ADR 0006, ticket 14): throws the current case away and
+  // opens the next one in the same act. Clearing `recommendation` here, and
+  // keying RecommendationPanel below by case number, is what resets the
+  // panel's override/acceptance/note/Anular-picker state — that state is
+  // local to RecommendationPanel and has no other way in from here.
+  const discardCase = () => {
+    setRecommendation(null);
+    startCase();
+  };
+
   return (
     <>
-      <Chat case={activeCase} onStartCase={startCase} onRecommendation={setRecommendation} />
-      <RecommendationPanel recommendation={recommendation} hasCase={activeCase !== null} />
+      <Chat case={activeCase} onStartCase={startCase} onDiscardCase={discardCase} onRecommendation={setRecommendation} />
+      <RecommendationPanel
+        key={activeCase?.number ?? "none"}
+        recommendation={recommendation}
+        hasCase={activeCase !== null}
+      />
     </>
   );
 }

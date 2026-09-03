@@ -1,7 +1,7 @@
 # 14 — Descartar caso throws the current case away and opens another
 
 Blocked by: 11
-Status: todo
+Status: done
 
 ## Goal
 With a case open, the chat header carries **Descartar caso**. It confirms

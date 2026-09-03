@@ -213,3 +213,10 @@ export async function openCase() {
   await resetChatEngine();
   return chat(INITIAL_PROMPT);
 }
+
+// Reintentar (ticket 13, ADR 0007): re-sends the same fixed prompt as a fresh
+// turn, but skips the reset — that already happened when the case started,
+// and a retry must not touch the session a second time.
+export async function retryOpenCase() {
+  return chat(INITIAL_PROMPT);
+}

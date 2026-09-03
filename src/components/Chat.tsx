@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { chat, openCase } from "@/app/actions";
+import { chat, openCase, retryOpenCase } from "@/app/actions";
 import type { Case, Recommendation } from "@/components/CaseView";
 
 // Center column — conversation. Ported from docs/reference/mockup-nuevo-caso.html
@@ -19,20 +19,48 @@ function formatTime(date: Date): string {
 export default function Chat({
   case: activeCase,
   onStartCase,
+  onDiscardCase,
   onRecommendation,
 }: {
   case: Case | null;
   onStartCase: () => void;
+  onDiscardCase: () => void;
   onRecommendation: (recommendation: Recommendation | null) => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
+  const [openingFailed, setOpeningFailed] = useState(false);
+  const [ownMessageSent, setOwnMessageSent] = useState(false);
+  const [discardModalOpen, setDiscardModalOpen] = useState(false);
   const composerDisabled = analyzing || !activeCase;
+
+  // Shared by the opening call and its Reintentar (ticket 13): same typing
+  // indicator, composer block, and success/failure bubble, differing only in
+  // which action sends the fixed prompt — openCase resets the session first,
+  // retryOpenCase does not (ADR 0007: a retry must not reset it a second time).
+  const runOpeningTurn = async (call: () => Promise<{ response: string; recommendation: Recommendation | null }>) => {
+    setAnalyzing(true);
+    try {
+      const { response, recommendation } = await call();
+      setMessages((prev) => [...prev, { kind: "ai", text: response }]);
+      onRecommendation(recommendation);
+      setOpeningFailed(false);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { kind: "ai", text: "No se pudo obtener una respuesta. Intentá de nuevo." },
+      ]);
+      setOpeningFailed(true);
+    } finally {
+      setAnalyzing(false);
+    }
+  };
 
   const handleSend = async () => {
     const text = input.trim();
     if (!text || composerDisabled) return;
+    setOwnMessageSent(true);
     setMessages((prev) => [...prev, { kind: "nurse", text }]);
     setInput("");
     setAnalyzing(true);
@@ -50,21 +78,24 @@ export default function Chat({
     }
   };
 
-  const handleStartCase = async () => {
+  const handleStartCase = () => {
     onStartCase();
-    setAnalyzing(true);
-    try {
-      const { response, recommendation } = await openCase();
-      setMessages((prev) => [...prev, { kind: "ai", text: response }]);
-      onRecommendation(recommendation);
-    } catch {
-      setMessages((prev) => [
-        ...prev,
-        { kind: "ai", text: "No se pudo obtener una respuesta. Intentá de nuevo." },
-      ]);
-    } finally {
-      setAnalyzing(false);
-    }
+    runOpeningTurn(openCase);
+  };
+
+  const handleRetryOpening = () => runOpeningTurn(retryOpenCase);
+
+  // Descartar caso (ADR 0006, ticket 14): clears this thread's own state,
+  // hands the case-level reset (new number/time, panel clear) up to
+  // CaseView, then opens the fresh case exactly like handleStartCase does —
+  // reset chained ahead of the initial prompt (ticket 11).
+  const handleDiscardCase = () => {
+    setDiscardModalOpen(false);
+    setMessages([]);
+    setOwnMessageSent(false);
+    setOpeningFailed(false);
+    onDiscardCase();
+    runOpeningTurn(openCase);
   };
 
   return (
@@ -88,12 +119,46 @@ export default function Chat({
           )}
         </div>
         {activeCase && (
-          <div className="flex flex-none items-center gap-2 whitespace-nowrap rounded-[22px] border border-black/20 bg-[#f7f8f9] px-[15px] py-2 text-[13.5px] font-medium">
-            <span className="h-2 w-2 rounded-full bg-[#3f9a4d]" />
-            En seguimiento
+          <div className="flex flex-none items-center gap-3">
+            <div className="flex items-center gap-2 whitespace-nowrap rounded-[22px] border border-black/20 bg-[#f7f8f9] px-[15px] py-2 text-[13.5px] font-medium">
+              <span className="h-2 w-2 rounded-full bg-[#3f9a4d]" />
+              En seguimiento
+            </div>
+            <button
+              onClick={() => setDiscardModalOpen(true)}
+              className="text-[13px] font-semibold text-[#7c828c] hover:text-[#262a30]"
+            >
+              Descartar caso
+            </button>
           </div>
         )}
       </header>
+
+      {discardModalOpen && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40">
+          <div className="mx-4 w-full max-w-[400px] rounded-[14px] border-[1.5px] border-[#262a30] bg-[#fbfbfc] p-6 shadow-[0_12px_34px_rgba(0,0,0,0.25)]">
+            <div className="text-[17px] font-bold text-[#262a30]">¿Descartar el caso actual?</div>
+            <p className="mt-2 text-[14px] leading-normal text-[#565b63]">
+              Se pierde toda la conversación, la recomendación, la nota y la decisión del clínico
+              sobre este caso. Esta acción no se puede deshacer.
+            </p>
+            <div className="mt-5 flex justify-end gap-2.5">
+              <button
+                onClick={() => setDiscardModalOpen(false)}
+                className="rounded-[9px] border-[1.5px] border-[#d2d5da] bg-[#f7f8f9] px-4 py-2 font-sans text-[14px] font-semibold text-[#2e3138] hover:bg-[#e9ebee]"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleDiscardCase}
+                className="rounded-[9px] border-[1.5px] border-[#262a30] bg-[#262a30] px-4 py-2 font-sans text-[14px] font-semibold text-[#f5f6f7] hover:bg-black"
+              >
+                Descartar caso
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Thread */}
       <div className="flex-1 overflow-y-auto px-[30px] pt-[26px] pb-3">
@@ -103,6 +168,16 @@ export default function Chat({
               m.kind === "nurse" ? <NurseBubble key={i} text={m.text} /> : <AiBubble key={i} text={m.text} />,
             )}
             {analyzing && <TypingIndicator />}
+            {openingFailed && !ownMessageSent && !analyzing && (
+              <div className="pl-12">
+                <button
+                  onClick={handleRetryOpening}
+                  className="rounded-[9px] border-[1.5px] border-[#262a30] bg-transparent px-4 py-2 font-sans text-[14px] font-semibold text-[#262a30] hover:bg-black/5"
+                >
+                  Reintentar
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex h-full items-center justify-center">
