@@ -105,7 +105,13 @@ function normalizeConfianza(value: number | undefined): number | null {
   return Math.round(value <= 1 ? value * 100 : value);
 }
 
-export default function RecommendationPanel({ recommendation }: { recommendation: Recommendation | null }) {
+export default function RecommendationPanel({
+  recommendation,
+  hasCase,
+}: {
+  recommendation: Recommendation | null;
+  hasCase: boolean;
+}) {
   const [levelKey, setLevelKey] = useState<ManchesterKey | null>(null);
   const [overridden, setOverridden] = useState(false);
   const [accepted, setAccepted] = useState(false);
@@ -248,7 +254,19 @@ export default function RecommendationPanel({ recommendation }: { recommendation
           )}
         </div>
       )}
-      <div className="flex-1 overflow-y-auto px-[26px] pt-6 pb-2">
+      {/* No case yet (ADR 0006): the panel is dimmed behind a message and its
+          action buttons are not shown. */}
+      {!hasCase && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center px-[26px]">
+          <div className="rounded-xl bg-[#f5f6f7]/90 px-5 py-3 text-center text-[15px] font-semibold text-[#565b63]">
+            Iniciá un caso para ver la recomendación
+          </div>
+        </div>
+      )}
+      <div
+        className={`flex-1 overflow-y-auto px-[26px] pt-6 pb-2${hasCase ? "" : " pointer-events-none opacity-40 select-none"}`}
+        aria-hidden={!hasCase}
+      >
         {/* Patient */}
         <div className="mb-4 flex items-start gap-3.5">
           <div className="h-[52px] w-[52px] flex-none rounded-full border border-black/[0.15] bg-[image:repeating-linear-gradient(135deg,#dcdee2_0_6px,#d3d6db_6px_12px)]" />
@@ -406,7 +424,7 @@ export default function RecommendationPanel({ recommendation }: { recommendation
       </div>
 
       {/* Actions */}
-      <div className="relative flex-none border-t border-black/[0.09] bg-[#f5f6f7] px-[26px] pt-[14px] pb-5">
+      <div hidden={!hasCase} className="relative flex-none border-t border-black/[0.09] bg-[#f5f6f7] px-[26px] pt-[14px] pb-5">
         {noteOpen && (
           <div className="mb-3">
             <textarea

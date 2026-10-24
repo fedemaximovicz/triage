@@ -70,3 +70,23 @@ model didn't actually produce would look like a real suggestion.
 - **Coercing or defaulting an invalid `nivel`** — a fabricated or
   nearest-match level would read as a real model suggestion instead of a
   validation failure, undermining the human-in-the-loop requirement.
+
+## Amendment — a bare trailing JSON object is also accepted (ticket 11)
+The instruction still asks for a fenced ` ```json ` block, and a fenced block
+is still what `chat()` looks for first (the last one wins). When there is none,
+it now also accepts a **bare JSON object that runs to the end of the reply**:
+the earliest `{` whose remainder parses as JSON is taken as the block, and a
+`---` separator left just before it is trimmed off the prose. "No JSON block
+found" above therefore means neither a fenced block nor a trailing object.
+
+**Why:** `llama3.2:3b` under ADR 0008 does not reliably follow the fence rule.
+Against the real model the same instruction gave a fenced block in one run and
+a bare object after `---` in the next. With fence-only parsing, every slip
+blanked the panel and printed the raw JSON in the AI bubble where the clinician
+reads it. Per-field validation is unchanged, so the empty strings and empty
+arrays such a model writes for unknown fields are still dropped, never shown.
+
+**Not accepted:** JSON followed by more text, and anything that does not parse
+as one complete object. Those stay "unavailable" rather than being repaired by
+guesswork. This amendment does not make the model supply `nivel`; it only stops
+a recommendation it did write from being lost or leaked.

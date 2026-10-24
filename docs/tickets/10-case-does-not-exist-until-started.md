@@ -1,7 +1,7 @@
 # 10 — The case does not exist until the clinician starts it
 
 Blocked by: none
-Status: todo
+Status: done
 
 ## Goal
 The app stops opening straight into a usable conversation. It opens with **no

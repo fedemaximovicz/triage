@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Chat from "@/components/Chat";
 import RecommendationPanel from "@/components/RecommendationPanel";
 
@@ -26,13 +26,26 @@ export type Recommendation = {
   proximosPasos?: string[];
 };
 
+// The case in progress (ADR 0006). null means the app is in its empty state.
+// Held here so the conversation and the panel read the same fact.
+export type ActiveCase = { number: number; startedAt: Date };
+
+// In-memory counter: starts over on reload (ADR 0006).
+const FIRST_CASE_NUMBER = 2451;
+
 export default function CaseView() {
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
+  const [activeCase, setActiveCase] = useState<ActiveCase | null>(null);
+  const nextCaseNumber = useRef(FIRST_CASE_NUMBER);
+
+  const startCase = () => {
+    setActiveCase({ number: nextCaseNumber.current++, startedAt: new Date() });
+  };
 
   return (
     <>
-      <Chat onRecommendation={setRecommendation} />
-      <RecommendationPanel recommendation={recommendation} />
+      <Chat activeCase={activeCase} onStartCase={startCase} onRecommendation={setRecommendation} />
+      <RecommendationPanel recommendation={recommendation} hasCase={activeCase !== null} />
     </>
   );
 }

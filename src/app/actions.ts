@@ -99,7 +99,7 @@ function buildInstructedMessage(query: string): string {
 ---
 Instrucciones para tu respuesta (no se las menciones al clínico):
 1. Respondé primero en prosa, en español, dirigido al clínico, como en cualquier conversación.
-2. Al final de tu respuesta agregá un bloque de código \`\`\`json con esta forma exacta. Omití cualquier campo que no puedas determinar con lo que el clínico escribió — nunca inventes un valor, y nunca inventes la identidad del paciente:
+2. Al final de tu respuesta agregá siempre un bloque de código que empiece con una línea \`\`\`json y termine con una línea \`\`\`, con esta forma exacta. Omití cualquier campo que no puedas determinar con lo que el clínico escribió — nunca inventes un valor, y nunca inventes la identidad del paciente:
 {
   "motivo": "string",
   "antecedentes": "string",
@@ -110,22 +110,45 @@ Instrucciones para tu respuesta (no se las menciones al clínico):
   "informacionFaltante": ["string"],
   "proximosPasos": ["string"]
 }
-3. "nivel" tiene que ser exactamente una de esas cinco palabras en minúscula, o tiene que estar ausente si no podés determinarlo — nunca otro valor.
-4. "confianza" tiene que ser un número entero de 0 a 100 (por ejemplo 85), nunca una fracción de 0 a 1.`;
+3. "nivel" tiene que ser exactamente una de esas cinco palabras en minúscula — nunca otro valor. En cuanto el clínico te haya dado cualquier dato clínico (un síntoma, una edad, un signo vital), incluí siempre "nivel" y "confianza" con tu mejor lectura provisional, aunque sea incierta: es una sugerencia que el clínico confirma, no una decisión. Omití "nivel" sólo si todavía no te dio ningún dato clínico.
+4. "confianza" tiene que ser un número entero de 0 a 100 (por ejemplo 85), nunca una fracción de 0 a 1.
+5. El bloque \`\`\`json es obligatorio en cada respuesta y va siempre al final, nunca en medio de la prosa ni sin las marcas \`\`\`. Si no sabés el valor de un campo, omitilo: no lo dejes vacío ("" o []) y no copies los valores de ejemplo como "string".`;
 }
+
+// The prompt inicial de triage (ADR 0007): sent as the clinician's turn when a
+// case starts, and never shown in the thread. Wording is provisional — it is
+// tuned against the real model, and a model that answers with a list of
+// questions has not met the ticket.
+const INITIAL_TRIAGE_PROMPT = `Acaba de empezar un caso de triage nuevo y todavía no sabés nada del paciente. Vas a entrevistar al clínico de a una pregunta por vez. Saludá en una sola frase y hacé UNA sola pregunta, la más útil ahora; nunca una lista ni varias preguntas juntas. En cada respuesta seguí pidiendo lo que todavía falte para el triage, y nunca des la entrevista por terminada. En cuanto el clínico te dé algo útil, completá "nivel" y "confianza" con tu mejor lectura provisional, y corregila cuando el cuadro cambie. Como en todas tus respuestas, cerrá con el bloque \`\`\`json.`;
 
 const JSON_FENCE = /```(?:json)?\s*([\s\S]*?)```/gi;
 
 // Splits the raw model text into the clinician-facing prose and the JSON
-// text of the last fenced code block, if any. No fenced block at all means
-// the model didn't follow the instructions — jsonText is null and the caller
-// treats the recommendation as unavailable rather than guessing at one.
+// text of the last fenced code block. Without a fence it accepts a bare JSON
+// object that runs to the end of the reply, which is how a small model that
+// ignores the fence instruction usually writes it (ADR 0003). If neither is
+// there, jsonText is null and the caller treats the recommendation as
+// unavailable rather than guessing at one.
 function extractJsonBlock(text: string): { prose: string; jsonText: string | null } {
   const matches = [...text.matchAll(JSON_FENCE)];
-  if (matches.length === 0) return { prose: text.trim(), jsonText: null };
+  if (matches.length > 0) {
+    const last = matches[matches.length - 1];
+    return { prose: text.slice(0, last.index).trim(), jsonText: last[1].trim() };
+  }
 
-  const last = matches[matches.length - 1];
-  return { prose: text.slice(0, last.index).trim(), jsonText: last[1].trim() };
+  // The earliest "{" whose remainder parses is the whole outer object; a stray
+  // "{" in the prose never parses to the end of the text.
+  for (let i = text.indexOf("{"); i !== -1; i = text.indexOf("{", i + 1)) {
+    const candidate = text.slice(i).trim();
+    try {
+      JSON.parse(candidate);
+    } catch {
+      continue;
+    }
+    const prose = text.slice(0, i).replace(/\s*-{3,}\s*$/, "").trim();
+    return { prose, jsonText: candidate };
+  }
+  return { prose: text.trim(), jsonText: null };
 }
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:11434";
@@ -175,7 +198,10 @@ export async function chat(query: string) {
   // (ADR 0009), and runs before anything is written to the history so a failed
   // lookup leaves the conversation as it was.
   const fragments = await retrieveContext(query);
+  return runTurn(query, fragments);
+}
 
+async function runTurn(query: string, fragments: string[]) {
   // SimpleChatEngine.chat() can't take a message for one turn only, so its few
   // steps are done here by hand. The context is added to the list sent with
   // this call but never to memory, so the next turn doesn't resend it and
@@ -211,6 +237,16 @@ export async function chat(query: string) {
   }
 
   return { response: prose, recommendation };
+}
+
+// Iniciar caso (ADR 0006/0007). The reset is awaited before the prompt goes
+// out, or the first question of a new case would be answered with the previous
+// case in the model's context. No retrieval: the prompt is fixed text, not
+// something the clinician wrote, so searching the knowledge base with it would
+// only inject unrelated fragments (ADR 0009).
+export async function startCase() {
+  await resetChatEngine();
+  return runTurn(INITIAL_TRIAGE_PROMPT, []);
 }
 
 export async function resetChatEngine() {
