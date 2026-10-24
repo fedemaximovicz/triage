@@ -1,7 +1,7 @@
 # 11 — Starting a case makes the AI open the conversation
 
 Blocked by: 10
-Status: todo
+Status: done
 
 ## Goal
 Pressing **Iniciar caso** resets the model's session and then sends a fixed
