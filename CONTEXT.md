@@ -8,3 +8,5 @@
 **Descartar caso** — tira el caso en curso entero (conversación, panel, decisión humana, nota y memoria del modelo) y arranca otro en el acto; pide confirmación. NOT: Reiniciar caso, que ya no existe.
 **Prompt inicial de triage** — mensaje fijo e invisible que se manda al iniciar un caso; el clínico sólo ve la respuesta de la IA. NOT: un mensaje del clínico.
 **Deshacer** — ventana corta tras Aceptar o Anular para soltar la decisión humana y devolver el nivel al control de la IA. NOT: cambiar el nivel a mano.
+**Base de conocimiento** — los documentos del protocolo Manchester en `knowledge/` (.md/.txt) que el RAG indexa; si está vacía, la app funciona sin RAG. NOT: historial del caso, memoria del modelo.
+**Contexto recuperado** — fragmentos de la base de conocimiento buscados con el texto del clínico y entregados al modelo sólo en el turno actual; nunca queda en el historial ni se le muestra al clínico. NOT: fuentes, citas.

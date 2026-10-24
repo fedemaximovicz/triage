@@ -113,6 +113,9 @@ export default function RecommendationPanel({ recommendation }: { recommendation
   const [noteOpen, setNoteOpen] = useState(false);
   const [note, setNote] = useState("");
   const [toast, setToast] = useState<string | null>(null);
+  // Set only for the toast Aceptar/Anular raise, so Deshacer can release
+  // whichever of the two just happened — cleared with the toast itself.
+  const [toastUndo, setToastUndo] = useState<(() => void) | null>(null);
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   // Anular after Aceptar needs a second click on the same button (ADR 0005)
   // instead of blocking or a modal — this holds that one-shot confirmation.
@@ -167,10 +170,26 @@ export default function RecommendationPanel({ recommendation }: { recommendation
   const aiSuggestsDifferently = humanDecisionActive && aiLevelKey !== null && aiLevelKey !== levelKey;
   const confianzaPct = normalizeConfianza(display.confianza);
 
-  const showToast = (message: string) => {
+  const showToast = (message: string, undo?: () => void) => {
     setToast(message);
+    setToastUndo(() => undo ?? null);
     clearTimeout(toastTimeout.current);
-    toastTimeout.current = setTimeout(() => setToast(null), TOAST_DURATION_MS);
+    toastTimeout.current = setTimeout(() => {
+      setToast(null);
+      setToastUndo(null);
+    }, TOAST_DURATION_MS);
+  };
+
+  // Releases whichever human decision the toast's Deshacer refers to: the
+  // level returns to the AI's control and the confidence bar reappears
+  // (ADR 0006). Only ever undoes the most recent decision, not a stack.
+  const undoDecision = () => {
+    setLevelKey(null);
+    setOverridden(false);
+    setAccepted(false);
+    clearTimeout(toastTimeout.current);
+    setToast(null);
+    setToastUndo(null);
   };
 
   const pickLevel = (key: ManchesterKey) => {
@@ -179,7 +198,7 @@ export default function RecommendationPanel({ recommendation }: { recommendation
     setAccepted(false);
     setOverrideOpen(false);
     setAnularConfirmPending(false);
-    showToast(`Nivel anulado → ${LEVELS[key].label}`);
+    showToast(`Nivel anulado → ${LEVELS[key].label}`, undoDecision);
   };
 
   const accept = () => {
@@ -189,7 +208,7 @@ export default function RecommendationPanel({ recommendation }: { recommendation
     setOverrideOpen(false);
     setAnularConfirmPending(false);
     clearTimeout(anularConfirmTimeout.current);
-    showToast(`Triage confirmado · ${LEVELS[shownLevelKey].label}`);
+    showToast(`Triage confirmado · ${LEVELS[shownLevelKey].label}`, undoDecision);
   };
 
   // Anular is always available (ADR 0005 rejects blocking it after
@@ -217,21 +236,16 @@ export default function RecommendationPanel({ recommendation }: { recommendation
     setOverrideOpen(false);
   };
 
-  const reiniciarCaso = () => {
-    setLevelKey(null);
-    setOverridden(false);
-    setAccepted(false);
-    setOverrideOpen(false);
-    setAnularConfirmPending(false);
-    clearTimeout(anularConfirmTimeout.current);
-    setDisplay({});
-  };
-
   return (
     <aside className="relative flex w-[clamp(360px,31vw,452px)] flex-none flex-col overflow-hidden bg-[#f5f6f7]">
       {toast && (
-        <div className="absolute top-4 left-1/2 z-20 -translate-x-1/2 rounded-full bg-[#262a30] px-5 py-[11px] text-[13.5px] font-medium whitespace-nowrap text-[#f5f6f7] shadow-[0_8px_24px_rgba(0,0,0,0.22)]">
-          {toast}
+        <div className="absolute top-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-3 rounded-full bg-[#262a30] px-5 py-[11px] text-[13.5px] font-medium whitespace-nowrap text-[#f5f6f7] shadow-[0_8px_24px_rgba(0,0,0,0.22)]">
+          <span>{toast}</span>
+          {toastUndo && (
+            <button onClick={toastUndo} className="font-bold text-[#f5f6f7] underline underline-offset-2">
+              Deshacer
+            </button>
+          )}
         </div>
       )}
       <div className="flex-1 overflow-y-auto px-[26px] pt-6 pb-2">
@@ -455,12 +469,6 @@ export default function RecommendationPanel({ recommendation }: { recommendation
             + Nota
           </button>
         </div>
-        <button
-          onClick={reiniciarCaso}
-          className="mt-2.5 w-full text-center text-[12.5px] font-semibold text-[#9aa0aa] hover:text-[#2e3138]"
-        >
-          ↺ Reiniciar caso
-        </button>
       </div>
     </aside>
   );
