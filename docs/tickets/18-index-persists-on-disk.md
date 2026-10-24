@@ -1,7 +1,7 @@
 # 18 — The index persists on disk and is reused while knowledge/ is unchanged
 
 Blocked by: 17
-Status: open
+Status: done
 
 ## Goal
 The index of the **base de conocimiento** is saved to `.rag-index/` and reused
