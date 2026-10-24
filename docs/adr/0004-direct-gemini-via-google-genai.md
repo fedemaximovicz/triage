@@ -1,5 +1,7 @@
 # 0004 — Direct Gemini calls via @google/genai, LlamaIndex parked for Ollama
 
+Superseded by ADR 0008.
+
 ## Decision
 `src/app/actions.ts`'s `chat()`, `processDocs()`, and `resetChatEngine()` now
 call `@google/genai` directly — a `GoogleGenAI` client and a module-level

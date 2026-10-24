@@ -1,7 +1,7 @@
 # 16 — The chat is answered by llama3.2:3b on Ollama, and Gemini is gone
 
 Blocked by: none
-Status: open
+Status: done
 
 ## Goal
 Every turn — the prompt inicial, **Reintentar** and every clinician message —

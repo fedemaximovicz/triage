@@ -1,21 +1,14 @@
 "use server";
 
-import { GoogleGenAI, type Chat } from "@google/genai";
+import { SimpleChatEngine } from "llamaindex";
+import { Ollama } from "@llamaindex/ollama";
 
-// Server-side model access, calling @google/genai directly (ADR 0004). The
-// LlamaIndex-based version (ADR 0002, ticket 06) is parked, unused, in
-// llamaindex-engine.ts for when Ollama is installed — @llamaindex/google's
-// Gemini provider can't reach a model this API key still supports (see ADR
-// 0004 for the exact crash).
+// Server-side model access: a local Ollama through LlamaIndex.TS (ADR 0008,
+// superseding ADR 0004).
 //
-// Debt: chatSession below is a module-level singleton shared by every request
+// Debt: chatEngine below is a module-level singleton shared by every request
 // and every case. Faithful to the base project's shape, wrong once several
 // cases are open.
-
-interface LCDoc {
-  pageContent: string;
-  metadata: Record<string, unknown>;
-}
 
 // Recommendation contract — ADR 0003. Every field is independently optional:
 // the model may omit or botch any of them, and each is validated on its own
@@ -134,39 +127,43 @@ function extractJsonBlock(text: string): { prose: string; jsonText: string | nul
   return { prose: text.slice(0, last.index).trim(), jsonText: last[1].trim() };
 }
 
-// gemini-2.5-flash (ticket 06's original pin) is deprecated for this API key;
-// Google's own 404 pointed at this replacement (ADR 0004).
-const MODEL = "gemini-3.6-flash";
+const DEFAULT_BASE_URL = "http://127.0.0.1:11434";
+const DEFAULT_MODEL = "llama3.2:3b";
+const DEFAULT_NUM_CTX = 8192;
 
-let ai: GoogleGenAI | null = null;
-
-// Lazy rather than module-level (the base project built the LLM at import time):
-// a missing key would otherwise throw while the module loads, taking down every
-// route instead of just this action.
-function ensureClient(): GoogleGenAI {
-  if (ai) return ai;
-
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      "GEMINI_API_KEY no está definida. Copiá .env.example a .env.local y completá el valor.",
-    );
-  }
-
-  ai = new GoogleGenAI({ apiKey });
-  return ai;
+// Ollama truncates silently at num_ctx, and its own default (4096) is too small
+// for an interview that carries the full JSON every turn — so it is always set
+// explicitly (ADR 0008). A missing or unparseable value falls back to the default.
+function numCtx(): number {
+  const parsed = Number.parseInt(process.env.OLLAMA_NUM_CTX ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_NUM_CTX;
 }
 
-let chatSession: Chat | null = null;
+let chatEngine: SimpleChatEngine | null = null;
 
-function activeSession(): Chat {
-  chatSession ??= ensureClient().chats.create({ model: MODEL, config: { temperature: 0 } });
-  return chatSession;
+// Lazy rather than module-level: the env is read when a turn needs the model,
+// not while the module loads. Nothing is checked up front — with Ollama stopped
+// or the model not pulled, chat() rejects and the UI shows the error bubble.
+function activeEngine(): SimpleChatEngine {
+  chatEngine ??= new SimpleChatEngine({
+    llm: new Ollama({
+      model: process.env.OLLAMA_MODEL || DEFAULT_MODEL,
+      config: { host: process.env.OLLAMA_BASE_URL || DEFAULT_BASE_URL },
+      options: { temperature: 0, num_ctx: numCtx() },
+    }),
+  });
+  return chatEngine;
 }
 
 export async function chat(query: string) {
-  const result = await activeSession().sendMessage({ message: buildInstructedMessage(query) });
-  const rawText = result.text ?? "";
+  const result = await activeEngine().chat({ message: buildInstructedMessage(query) });
+
+  // EngineResponse.response is deprecated in 0.12.1; read the message instead.
+  const content = result.message.content;
+  const rawText =
+    typeof content === "string"
+      ? content
+      : content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
 
   const { prose, jsonText } = extractJsonBlock(rawText);
 
@@ -183,13 +180,7 @@ export async function chat(query: string) {
   return { response: prose, recommendation };
 }
 
-export async function processDocs(lcDocs: LCDoc[]) {
-  // Not implemented against @google/genai directly (ADR 0004) — RAG was
-  // already out of scope (ticket 06/08). The working version lives in
-  // llamaindex-engine.ts; wire that back in once Ollama is available.
-  void lcDocs;
-}
-
 export async function resetChatEngine() {
-  chatSession = null;
+  // Dropping the engine drops its memory: the next turn builds a fresh one.
+  chatEngine = null;
 }
