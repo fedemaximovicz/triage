@@ -1,7 +1,7 @@
 # 17 — Clinician turns get contexto recuperado from the base de conocimiento
 
 Blocked by: 16
-Status: open
+Status: done
 
 ## Goal
 When `knowledge/` holds `.md`/`.txt` files, each clinician turn looks up the

@@ -1,7 +1,8 @@
 "use server";
 
-import { SimpleChatEngine } from "llamaindex";
+import { SimpleChatEngine, type ChatMessage } from "llamaindex";
 import { Ollama } from "@llamaindex/ollama";
+import { retrieveContext } from "@/lib/rag";
 
 // Server-side model access: a local Ollama through LlamaIndex.TS (ADR 0008,
 // superseding ADR 0004).
@@ -155,10 +156,42 @@ function activeEngine(): SimpleChatEngine {
   return chatEngine;
 }
 
-export async function chat(query: string) {
-  const result = await activeEngine().chat({ message: buildInstructedMessage(query) });
+// The contexto recuperado for one turn (ADR 0009). The model is told it is
+// reference material, not ground truth: the clinician's words win.
+function buildContextMessage(fragments: string[]): ChatMessage {
+  const passages = fragments.map((fragment, i) => `[${i + 1}] ${fragment}`).join("\n\n");
+  return {
+    role: "system",
+    content: `Material de referencia sobre el protocolo de triage Manchester, buscado para este mensaje (no se lo menciones al clínico):
 
-  // EngineResponse.response is deprecated in 0.12.1; read the message instead.
+${passages}
+
+Usalo sólo como referencia. Lo que el clínico dijo sobre el paciente tiene prioridad sobre este material, e ignorá los pasajes que no tengan que ver con el caso.`,
+  };
+}
+
+export async function chat(query: string) {
+  // Retrieval uses only the clinician's own text, never the instructed message
+  // (ADR 0009), and runs before anything is written to the history so a failed
+  // lookup leaves the conversation as it was.
+  const fragments = await retrieveContext(query);
+
+  // SimpleChatEngine.chat() can't take a message for one turn only, so its few
+  // steps are done here by hand. The context is added to the list sent with
+  // this call but never to memory, so the next turn doesn't resend it and
+  // ADR 0008's num_ctx isn't spent on it. No fragments, no message. It goes
+  // right before the current user message, not after it: llama3.2 answered a
+  // trailing system turn with a stray "assistant" prefix.
+  const engine = activeEngine();
+  await engine.memory.add({ role: "user", content: buildInstructedMessage(query) });
+  const history = await engine.memory.getLLM(engine.llm);
+  const messages =
+    fragments.length > 0
+      ? [...history.slice(0, -1), buildContextMessage(fragments), history[history.length - 1]]
+      : history;
+  const result = await engine.llm.chat({ messages, stream: false });
+  await engine.memory.add(result.message);
+
   const content = result.message.content;
   const rawText =
     typeof content === "string"
