@@ -2,7 +2,7 @@
 
 import { SimpleChatEngine, type ChatMessage } from "llamaindex";
 import { Ollama } from "@llamaindex/ollama";
-import { retrieveContext } from "@/lib/rag";
+import { retrieveContext, warmIndex } from "@/lib/rag";
 
 // Server-side model access: a local Ollama through LlamaIndex.TS (ADR 0008,
 // superseding ADR 0004).
@@ -243,9 +243,13 @@ async function runTurn(query: string, fragments: string[]) {
 // out, or the first question of a new case would be answered with the previous
 // case in the model's context. No retrieval: the prompt is fixed text, not
 // something the clinician wrote, so searching the knowledge base with it would
-// only inject unrelated fragments (ADR 0009).
+// only inject unrelated fragments (ADR 0009). The index is warmed alongside the
+// turn, not before it: warmIndex() isn't awaited and never rejects, so the
+// opening turn doesn't depend on it, and the first clinician turn finds it
+// ready or waits for it.
 export async function startCase() {
   await resetChatEngine();
+  warmIndex();
   return runTurn(INITIAL_TRIAGE_PROMPT, []);
 }
 

@@ -1,70 +1,32 @@
 "use client";
 
 import { useState } from "react";
-import { chat, startCase } from "@/app/actions";
-import type { ActiveCase, Recommendation } from "@/components/CaseView";
+import type { ActiveCase, Message } from "@/components/CaseView";
 
 // Center column — conversation. Ported from docs/reference/mockup-nuevo-caso.html
-// (ticket 02). Each successful chat() call hands its recommendation up to
-// CaseView (ticket 09) — a null recommendation or a failed call reports
-// nothing, per ADR 0005: the panel is left untouched, the failure surfaces
-// only in the thread below.
-
-type Message = { kind: "nurse" | "ai"; text: string };
+// (ticket 02). CaseView owns requests and messages so both start controls
+// share the same case lifecycle. A new case remounts this composer.
 
 export default function Chat({
   activeCase,
   onStartCase,
-  onRecommendation,
+  messages,
+  analyzing,
+  onSend,
 }: {
   activeCase: ActiveCase | null;
   onStartCase: () => void;
-  onRecommendation: (recommendation: Recommendation | null) => void;
+  messages: Message[];
+  analyzing: boolean;
+  onSend: (text: string) => void;
 }) {
-  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [analyzing, setAnalyzing] = useState(false);
 
-  // Iniciar caso (ADR 0006/0007): startCase() resets the model's session and
-  // then sends the prompt inicial, which never enters the thread — the
-  // clinician sees only the AI's first bubble. Failure handling is ticket 13;
-  // for now it ends in the usual error bubble.
-  const handleStart = async () => {
-    if (analyzing) return;
-    onStartCase();
-    setAnalyzing(true);
-    try {
-      const { response, recommendation } = await startCase();
-      setMessages((prev) => [...prev, { kind: "ai", text: response }]);
-      onRecommendation(recommendation);
-    } catch {
-      setMessages((prev) => [
-        ...prev,
-        { kind: "ai", text: "No se pudo obtener una respuesta. Intentá de nuevo." },
-      ]);
-    } finally {
-      setAnalyzing(false);
-    }
-  };
-
-  const handleSend = async () => {
+  const handleSend = () => {
     const text = input.trim();
     if (!activeCase || !text || analyzing) return;
-    setMessages((prev) => [...prev, { kind: "nurse", text }]);
+    onSend(text);
     setInput("");
-    setAnalyzing(true);
-    try {
-      const { response, recommendation } = await chat(text);
-      setMessages((prev) => [...prev, { kind: "ai", text: response }]);
-      onRecommendation(recommendation);
-    } catch {
-      setMessages((prev) => [
-        ...prev,
-        { kind: "ai", text: "No se pudo obtener una respuesta. Intentá de nuevo." },
-      ]);
-    } finally {
-      setAnalyzing(false);
-    }
   };
 
   return (
@@ -105,7 +67,9 @@ export default function Chat({
         ) : (
           <div className="flex h-full items-center justify-center">
             <button
-              onClick={handleStart}
+              type="button"
+              onClick={onStartCase}
+              disabled={analyzing}
               className="rounded-[11px] border-[1.5px] border-[#262a30] bg-[#262a30] px-[26px] py-[13px] font-sans text-[16px] font-semibold text-[#f5f6f7] hover:bg-black"
             >
               Iniciar caso

@@ -107,13 +107,18 @@ async function loadSavedIndex(hash: string, embedModel: OllamaEmbedding): Promis
 
 // Resolves to null when there is nothing to index. Nothing is cached for that
 // case, so dropping files into knowledge/ is picked up on the next turn. A stale
-// INDEX_DIR is left alone in that case; it is simply not loaded.
-async function openIndex(): Promise<VectorStoreIndex | null> {
+// INDEX_DIR is left alone in that case; it is simply not loaded. `hash` is what
+// the returned index was built from, so the in-memory copy can tell later whether
+// knowledge/ has moved on; the index already in memory is returned as-is when it
+// hasn't.
+async function openIndex(): Promise<{ opened: VectorStoreIndex | null; hash: string }> {
   const { documents, hash } = await readKnowledgeDocuments();
   if (documents.length === 0) {
     console.warn("[rag] knowledge/ is missing or has no .md/.txt files: turns run without RAG.");
-    return null;
+    return { opened: null, hash: "" };
   }
+
+  if (index && hash === indexHash) return { opened: index, hash };
 
   const embedModel = new OllamaEmbedding({
     model: embedModelName(),
@@ -121,7 +126,7 @@ async function openIndex(): Promise<VectorStoreIndex | null> {
   });
 
   const saved = await loadSavedIndex(hash, embedModel);
-  if (saved) return saved;
+  if (saved) return { opened: saved, hash };
 
   // The stores write to disk as they are filled, so a build that dies midway
   // leaves its debris in STAGING_DIR only, never in INDEX_DIR. A leftover from a
@@ -146,7 +151,7 @@ async function openIndex(): Promise<VectorStoreIndex | null> {
     await rm(path.join(INDEX_DIR, HASH_FILE), { force: true });
     await rm(INDEX_DIR, { recursive: true, force: true });
     await rename(STAGING_DIR, INDEX_DIR);
-    return built;
+    return { opened: built, hash };
   } catch (error) {
     await rm(STAGING_DIR, { recursive: true, force: true });
     throw error;
@@ -154,25 +159,56 @@ async function openIndex(): Promise<VectorStoreIndex | null> {
 }
 
 // Kept in memory once opened, backed by INDEX_DIR across restarts. The index is
-// shared by every case, so Descartar caso never touches it.
+// shared by every case, so Descartar caso never touches it. `indexHash` is the
+// hash of knowledge/ it was built from.
 let index: VectorStoreIndex | null = null;
+let indexHash = "";
 let building: Promise<VectorStoreIndex | null> | null = null;
 
-// At most one load or build in flight: turns that arrive while it runs wait for
-// the same promise instead of embedding the corpus again. A failure caches
-// nothing, so the next turn starts again from scratch.
-export function getIndex(): Promise<VectorStoreIndex | null> {
-  if (index) return Promise.resolve(index);
-
-  building ??= openIndex()
-    .then((built) => {
-      index = built;
-      return built;
-    })
+// Starts a load or build, whatever is cached. A failure drops the cached index
+// too, so a refresh that dies can't leave turns running on documents that are no
+// longer what knowledge/ holds: the next call starts again from scratch.
+function refreshIndex(): Promise<VectorStoreIndex | null> {
+  building = openIndex()
+    .then(
+      ({ opened, hash }) => {
+        index = opened;
+        indexHash = hash;
+        return opened;
+      },
+      (error) => {
+        index = null;
+        indexHash = "";
+        throw error;
+      },
+    )
     .finally(() => {
       building = null;
     });
   return building;
+}
+
+// At most one load or build in flight: turns that arrive while it runs wait for
+// the same promise instead of embedding the corpus again, even when an index is
+// already cached. A failure caches nothing, so the next turn starts again from
+// scratch.
+export function getIndex(): Promise<VectorStoreIndex | null> {
+  if (building) return building;
+  if (index) return Promise.resolve(index);
+  return refreshIndex();
+}
+
+// Iniciar caso (ADR 0009): gets the index ready in the background while the
+// opening turn runs, and checks knowledge/ again so files dropped since the last
+// case are picked up. Joins a load or build already in flight rather than
+// starting a second one. Fire and forget: it never rejects, so it can't touch the
+// opening turn. A failure is only logged; the first clinician turn that needs the
+// index waits for this same run if it is still going, and otherwise tries again
+// from scratch, ending in the error bubble if it fails again.
+export function warmIndex(): void {
+  (building ?? refreshIndex()).catch((error) => {
+    console.warn("[rag] warming the index failed; the first turn that needs it will try again:", error);
+  });
 }
 
 // The fragments of the base de conocimiento closest to `clinicianText`, best

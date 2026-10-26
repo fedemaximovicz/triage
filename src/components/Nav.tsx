@@ -1,8 +1,6 @@
-// Left navigation — static chrome ported from docs/reference/mockup-nuevo-caso.html.
-// "Nuevo caso" is the active screen; the other items are visible but inert (no
-// routing yet — see ticket 01 and ADR 0001).
+// "Nuevo caso" starts a case; the other navigation items have no routing yet.
 
-export default function Nav() {
+export default function Nav({ onNewCase, disabled }: { onNewCase: () => void; disabled: boolean }) {
   return (
     <nav className="flex w-[clamp(208px,18vw,244px)] flex-none flex-col border-r border-black/[0.09] bg-[#edeef1] px-4 py-[22px]">
       {/* Logo */}
@@ -26,16 +24,19 @@ export default function Nav() {
         </div>
 
         {/* Nuevo caso — active */}
-        <div
+        <button
+          type="button"
+          onClick={onNewCase}
+          disabled={disabled}
           aria-current="page"
-          className="flex items-center gap-3 rounded-[10px] border border-black/[0.12] bg-[#e2e4e8] px-3 py-[11px] font-semibold text-[#262a30] shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
+          className="flex cursor-pointer items-center gap-3 rounded-[10px] border border-black/[0.12] bg-[#e2e4e8] px-3 py-[11px] text-left font-semibold text-[#262a30] shadow-[0_1px_2px_rgba(0,0,0,0.05)] hover:bg-[#d3d6db] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <span className="relative block h-4 w-4">
             <span className="absolute left-[7px] top-px h-3.5 w-0.5 rounded-[2px] bg-current" />
             <span className="absolute left-px top-[7px] h-0.5 w-3.5 rounded-[2px] bg-current" />
           </span>
           <span className="text-[15px]">Nuevo caso</span>
-        </div>
+        </button>
 
         {/* Documentos */}
         <div className="flex cursor-pointer items-center gap-3 rounded-[9px] px-3 py-2.5 text-[#565b63] hover:bg-black/[0.045]">
