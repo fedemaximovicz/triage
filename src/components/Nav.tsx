@@ -56,15 +56,6 @@ export default function Nav({ onNewCase, disabled }: { onNewCase: () => void; di
           <span className="text-[15px]">Estadísticas</span>
         </div>
       </div>
-
-      {/* User footer */}
-      <div className="mt-auto flex items-center gap-[11px] border-t border-black/[0.08] px-2.5 py-3">
-        <div className="h-[34px] w-[34px] flex-none rounded-full border border-black/[0.12] bg-[#d3d6db]" />
-        <div className="leading-[1.25]">
-          <div className="text-[13.5px] font-semibold">M. Soto</div>
-          <div className="text-[11.5px] text-[#7c828c]">Enfermería · Turno tarde</div>
-        </div>
-      </div>
     </nav>
   );
 }

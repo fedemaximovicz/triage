@@ -40,7 +40,7 @@ export default function Chat({
                 Casos / <span className="font-bold text-[#262a30]">Caso #{activeCase.number} · Nuevo</span>
               </div>
               <div className="mt-1 text-[13px] text-[#7c828c]">
-                Iniciado {formatStartTime(activeCase.startedAt)} · Enf. M. Soto
+                Iniciado {formatStartTime(activeCase.startedAt)}
               </div>
             </div>
             <div className="flex flex-none items-center gap-2 whitespace-nowrap rounded-[22px] border border-black/20 bg-[#f7f8f9] px-[15px] py-2 text-[13.5px] font-medium">
