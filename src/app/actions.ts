@@ -2,6 +2,7 @@
 
 import { SimpleChatEngine, type ChatMessage } from "llamaindex";
 import { Ollama } from "@llamaindex/ollama";
+import { insertCase, saveTurn } from "@/lib/db";
 import { retrieveContext, warmIndex } from "@/lib/rag";
 
 // Server-side model access: a local Ollama through LlamaIndex.TS (ADR 0008,
@@ -193,12 +194,24 @@ Usalo sólo como referencia. Lo que el clínico dijo sobre el paciente tiene pri
   };
 }
 
-export async function chat(query: string) {
+export async function chat(caseId: number, query: string) {
   // Retrieval uses only the clinician's own text, never the instructed message
   // (ADR 0009), and runs before anything is written to the history so a failed
   // lookup leaves the conversation as it was.
   const fragments = await retrieveContext(query);
-  return runTurn(query, fragments);
+  const result = await runTurn(query, fragments);
+  // Saved only once the model has answered, both messages together: a failed
+  // turn leaves nothing behind. The nurse row holds the clinician's raw text,
+  // not the instructed message or the contexto recuperado (ADR 0010).
+  saveTurn(
+    caseId,
+    [
+      { kind: "nurse", text: query },
+      { kind: "ai", text: result.response },
+    ],
+    result.recommendation,
+  );
+  return result;
 }
 
 async function runTurn(query: string, fragments: string[]) {
@@ -247,10 +260,24 @@ async function runTurn(query: string, fragments: string[]) {
 // turn, not before it: warmIndex() isn't awaited and never rejects, so the
 // opening turn doesn't depend on it, and the first clinician turn finds it
 // ready or waits for it.
-export async function startCase() {
+//
+// The case row already exists (createCase), so a failed opening turn leaves a
+// started case with no messages (ADR 0007). Only the AI's reply is saved; the
+// prompt inicial never is (ADR 0010).
+export async function startCase(caseId: number) {
   await resetChatEngine();
   warmIndex();
-  return runTurn(INITIAL_TRIAGE_PROMPT, []);
+  const result = await runTurn(INITIAL_TRIAGE_PROMPT, []);
+  saveTurn(caseId, [{ kind: "ai", text: result.response }], result.recommendation);
+  return result;
+}
+
+// Creates the case row on the server and returns its number and start time
+// (ADR 0010). Separate from startCase so a failed opening turn doesn't lose the
+// number the server just assigned. `discardId` is the case being thrown away,
+// marked `descartado` before the new one is created.
+export async function createCase(discardId?: number) {
+  return insertCase(discardId);
 }
 
 export async function resetChatEngine() {

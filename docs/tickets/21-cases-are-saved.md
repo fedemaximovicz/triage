@@ -1,7 +1,7 @@
 # 21 — Cases and their conversation are saved
 
 Blocked by: —
-Status: open
+Status: done
 
 ## Goal
 Every case the clinician starts is saved in a local SQLite file, with the

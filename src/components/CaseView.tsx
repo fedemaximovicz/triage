@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { chat, startCase as startModelCase } from "@/app/actions";
+import { chat, createCase, startCase as startModelCase } from "@/app/actions";
 import Chat from "@/components/Chat";
 import Nav from "@/components/Nav";
 import RecommendationPanel from "@/components/RecommendationPanel";
@@ -33,13 +33,9 @@ export type Recommendation = {
 export type ActiveCase = { number: number; startedAt: Date };
 export type Message = { kind: "nurse" | "ai"; text: string };
 
-// In-memory counter: starts over on reload (ADR 0006).
-const FIRST_CASE_NUMBER = 2451;
-
 export default function CaseView() {
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
   const [activeCase, setActiveCase] = useState<ActiveCase | null>(null);
-  const nextCaseNumber = useRef(FIRST_CASE_NUMBER);
   const [messages, setMessages] = useState<Message[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
   const requestPending = useRef(false);
@@ -51,15 +47,33 @@ export default function CaseView() {
     if (requestPending.current) return;
     requestPending.current = true;
     setAnalyzing(true);
-    setMessages([]);
-    setRecommendation(null);
-    setActiveCase({ number: nextCaseNumber.current++, startedAt: new Date() });
     try {
-      const result = await startModelCase();
-      setMessages([{ kind: "ai", text: result.response }]);
-      setRecommendation(result.recommendation);
-    } catch {
-      setMessages([{ kind: "ai", text: "No se pudo obtener una respuesta. Intentá de nuevo." }]);
+      // The server assigns the number and saves the case before the opening
+      // turn goes out (ADR 0010), so a failed turn still leaves a started case.
+      // The case being discarded, if any, is marked `descartado` in the same
+      // call. If this fails nothing was created and the screen stays as it was.
+      let created: { number: number; startedAt: string };
+      try {
+        created = await createCase(activeCase?.number);
+      } catch {
+        if (activeCase) {
+          setMessages((prev) => [
+            ...prev,
+            { kind: "ai", text: "No se pudo obtener una respuesta. Intentá de nuevo." },
+          ]);
+        }
+        return;
+      }
+      setMessages([]);
+      setRecommendation(null);
+      setActiveCase({ number: created.number, startedAt: new Date(created.startedAt) });
+      try {
+        const result = await startModelCase(created.number);
+        setMessages([{ kind: "ai", text: result.response }]);
+        setRecommendation(result.recommendation);
+      } catch {
+        setMessages([{ kind: "ai", text: "No se pudo obtener una respuesta. Intentá de nuevo." }]);
+      }
     } finally {
       requestPending.current = false;
       setAnalyzing(false);
@@ -72,7 +86,7 @@ export default function CaseView() {
     setAnalyzing(true);
     setMessages((prev) => [...prev, { kind: "nurse", text }]);
     try {
-      const result = await chat(text);
+      const result = await chat(activeCase.number, text);
       setMessages((prev) => [...prev, { kind: "ai", text: result.response }]);
       setRecommendation(result.recommendation);
     } catch {

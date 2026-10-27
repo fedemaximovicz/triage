@@ -1,7 +1,7 @@
 # 20 — The UI shows no user
 
 Blocked by: —
-Status: open
+Status: done
 
 ## Goal
 The app has no user management, so it stops showing a made-up one. The nav
