@@ -1,7 +1,7 @@
 # 23 — Casos abiertos lists the saved cases
 
 Blocked by: 21
-Status: open
+Status: done
 
 ## Goal
 The **Casos abiertos** nav item opens a read-only list of the saved cases that

@@ -111,7 +111,7 @@ export default function CaseView() {
 
   return (
     <>
-      <Nav onNewCase={handleNewCase} disabled={analyzing} />
+      <Nav active="nuevo" onNewCase={handleNewCase} disabled={analyzing} />
       <Chat
         key={`chat-${activeCase?.number ?? "empty"}`}
         activeCase={activeCase}

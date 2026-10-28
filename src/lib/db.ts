@@ -115,6 +115,33 @@ export function saveDecision(
     .run(decision, nivelFinal, new Date().toISOString(), caseId);
 }
 
+export type OpenCase = {
+  id: number;
+  startedAt: string;
+  nivelIa: string | null;
+  motivo: string | null;
+  decision: "aceptado" | "anulado" | null;
+  nivelFinal: string | null;
+};
+
+// The saved cases that were not discarded, newest first, for Casos abiertos.
+// Read-only: no messages, no note (ADR 0010).
+export function listOpenCases(): OpenCase[] {
+  const rows = getDb()
+    .prepare(
+      "SELECT id, started_at, nivel_ia, motivo, decision, nivel_final FROM cases WHERE status = 'en_curso' ORDER BY id DESC",
+    )
+    .all();
+  return rows.map((row) => ({
+    id: Number(row.id),
+    startedAt: String(row.started_at),
+    nivelIa: (row.nivel_ia as string | null) ?? null,
+    motivo: (row.motivo as string | null) ?? null,
+    decision: (row.decision as OpenCase["decision"]) ?? null,
+    nivelFinal: (row.nivel_final as string | null) ?? null,
+  }));
+}
+
 // Saves the clinician's note; null is an empty note.
 export function saveNote(caseId: number, nota: string | null): void {
   getDb()

@@ -1,6 +1,29 @@
-// "Nuevo caso" starts a case; the other navigation items have no routing yet.
+import Link from "next/link";
 
-export default function Nav({ onNewCase, disabled }: { onNewCase: () => void; disabled: boolean }) {
+// "Nuevo caso" starts a case on `/` and links back there from `/casos`;
+// "Casos abiertos" links to the list. The other items have no routing yet.
+
+const ACTIVE_ITEM =
+  "flex cursor-pointer items-center gap-3 rounded-[10px] border border-black/[0.12] bg-[#e2e4e8] px-3 py-[11px] text-left font-semibold text-[#262a30] shadow-[0_1px_2px_rgba(0,0,0,0.05)] hover:bg-[#d3d6db]";
+const IDLE_ITEM =
+  "flex cursor-pointer items-center gap-3 rounded-[9px] px-3 py-2.5 text-[#565b63] hover:bg-black/[0.045]";
+
+export default function Nav({
+  active,
+  onNewCase,
+  disabled,
+}: {
+  active: "nuevo" | "casos";
+  onNewCase?: () => void;
+  disabled?: boolean;
+}) {
+  const newCaseIcon = (
+    <span className="relative block h-4 w-4">
+      <span className="absolute left-[7px] top-px h-3.5 w-0.5 rounded-[2px] bg-current" />
+      <span className="absolute left-px top-[7px] h-0.5 w-3.5 rounded-[2px] bg-current" />
+    </span>
+  );
+
   return (
     <nav className="flex w-[clamp(208px,18vw,244px)] flex-none flex-col border-r border-black/[0.09] bg-[#edeef1] px-4 py-[22px]">
       {/* Logo */}
@@ -12,34 +35,42 @@ export default function Nav({ onNewCase, disabled }: { onNewCase: () => void; di
       {/* Items */}
       <div className="flex flex-col gap-[3px]">
         {/* Inicio */}
-        <div className="flex cursor-pointer items-center gap-3 rounded-[9px] px-3 py-2.5 text-[#565b63] hover:bg-black/[0.045]">
+        <div className={IDLE_ITEM}>
           <span className="block h-4 w-4 rounded-[3px] border-[1.6px] border-current" />
           <span className="text-[15px]">Inicio</span>
         </div>
 
         {/* Casos abiertos */}
-        <div className="flex cursor-pointer items-center gap-3 rounded-[9px] px-3 py-2.5 text-[#565b63] hover:bg-black/[0.045]">
+        <Link
+          href="/casos"
+          aria-current={active === "casos" ? "page" : undefined}
+          className={active === "casos" ? ACTIVE_ITEM : IDLE_ITEM}
+        >
           <span className="block h-4 w-4 rounded-[3px] border-[1.6px] border-t-[5px] border-current" />
           <span className="text-[15px]">Casos abiertos</span>
-        </div>
+        </Link>
 
-        {/* Nuevo caso — active */}
-        <button
-          type="button"
-          onClick={onNewCase}
-          disabled={disabled}
-          aria-current="page"
-          className="flex cursor-pointer items-center gap-3 rounded-[10px] border border-black/[0.12] bg-[#e2e4e8] px-3 py-[11px] text-left font-semibold text-[#262a30] shadow-[0_1px_2px_rgba(0,0,0,0.05)] hover:bg-[#d3d6db] disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <span className="relative block h-4 w-4">
-            <span className="absolute left-[7px] top-px h-3.5 w-0.5 rounded-[2px] bg-current" />
-            <span className="absolute left-px top-[7px] h-0.5 w-3.5 rounded-[2px] bg-current" />
-          </span>
-          <span className="text-[15px]">Nuevo caso</span>
-        </button>
+        {/* Nuevo caso */}
+        {active === "nuevo" ? (
+          <button
+            type="button"
+            onClick={onNewCase}
+            disabled={disabled}
+            aria-current="page"
+            className={`${ACTIVE_ITEM} disabled:cursor-not-allowed disabled:opacity-50`}
+          >
+            {newCaseIcon}
+            <span className="text-[15px]">Nuevo caso</span>
+          </button>
+        ) : (
+          <Link href="/" className={IDLE_ITEM}>
+            {newCaseIcon}
+            <span className="text-[15px]">Nuevo caso</span>
+          </Link>
+        )}
 
         {/* Documentos */}
-        <div className="flex cursor-pointer items-center gap-3 rounded-[9px] px-3 py-2.5 text-[#565b63] hover:bg-black/[0.045]">
+        <div className={IDLE_ITEM}>
           <span className="relative block h-4 w-[14px] rounded-[2px] border-[1.6px] border-current">
             <span className="absolute left-0.5 right-0.5 top-1 h-[1.6px] bg-current" />
             <span className="absolute left-0.5 right-0.5 top-2 h-[1.6px] bg-current" />
@@ -48,7 +79,7 @@ export default function Nav({ onNewCase, disabled }: { onNewCase: () => void; di
         </div>
 
         {/* Estadísticas */}
-        <div className="flex cursor-pointer items-center gap-3 rounded-[9px] px-3 py-2.5 text-[#565b63] hover:bg-black/[0.045]">
+        <div className={IDLE_ITEM}>
           <span className="relative block h-4 w-4 rounded-full border-[1.6px] border-current">
             <span className="absolute left-[7px] top-[3px] h-1.5 w-[1.6px] bg-current" />
             <span className="absolute left-[7px] top-[7px] h-[1.6px] w-[5px] bg-current" />
