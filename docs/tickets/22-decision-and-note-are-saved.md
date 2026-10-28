@@ -1,7 +1,7 @@
 # 22 — The clinician's decision and note are saved with the case
 
 Blocked by: 21
-Status: open
+Status: done
 
 ## Goal
 What the clinician decides in the recommendation panel is saved with the case:

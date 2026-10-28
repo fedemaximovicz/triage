@@ -101,3 +101,23 @@ export function saveTurn(
       .run(recommendation?.nivel ?? null, recommendation?.motivo ?? null, now, caseId);
   });
 }
+
+// Saves the clinician's decision on the panel (Aceptar, Anular, Deshacer).
+// Both fields are replaced together, null clearing them: the decision and the
+// level it fixed are one fact (ADR 0010).
+export function saveDecision(
+  caseId: number,
+  decision: "aceptado" | "anulado" | null,
+  nivelFinal: string | null,
+): void {
+  getDb()
+    .prepare("UPDATE cases SET decision = ?, nivel_final = ?, updated_at = ? WHERE id = ?")
+    .run(decision, nivelFinal, new Date().toISOString(), caseId);
+}
+
+// Saves the clinician's note; null is an empty note.
+export function saveNote(caseId: number, nota: string | null): void {
+  getDb()
+    .prepare("UPDATE cases SET nota = ?, updated_at = ? WHERE id = ?")
+    .run(nota, new Date().toISOString(), caseId);
+}

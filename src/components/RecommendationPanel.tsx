@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { saveDecision, saveNote } from "@/app/actions";
 import type { Recommendation } from "@/components/CaseView";
 
 // Right column — recommendation panel. Ported from
 // docs/reference/mockup-nuevo-caso.html (ticket 04 display, ticket 05
-// actions); Anular/Aceptar/+ Nota are pure front-end state, no backend
-// (ADR 0001). Manchester colors apply only once the clinician overrides.
+// actions). Anular/Aceptar/Deshacer/+ Nota update the panel's own state
+// first and are then saved with the case, fire-and-forget (ADR 0010).
+// Manchester colors apply only once the clinician overrides.
 
 const REASONING = ["[razonamiento clínico]", "[razonamiento clínico]", "[razonamiento clínico]"];
 const MISSING = ["[dato faltante]", "[dato faltante]", "[dato faltante]"];
@@ -108,9 +110,11 @@ function normalizeConfianza(value: number | undefined): number | null {
 export default function RecommendationPanel({
   recommendation,
   hasCase,
+  caseNumber,
 }: {
   recommendation: Recommendation | null;
   hasCase: boolean;
+  caseNumber: number | null;
 }) {
   const [levelKey, setLevelKey] = useState<ManchesterKey | null>(null);
   const [overridden, setOverridden] = useState(false);
@@ -118,6 +122,8 @@ export default function RecommendationPanel({
   const [overrideOpen, setOverrideOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [note, setNote] = useState("");
+  // The note text the server last received, so an unchanged note isn't re-sent.
+  const lastSavedNote = useRef("");
   const [toast, setToast] = useState<string | null>(null);
   // Set only for the toast Aceptar/Anular raise, so Deshacer can release
   // whichever of the two just happened — cleared with the toast itself.
@@ -186,10 +192,32 @@ export default function RecommendationPanel({
     }, TOAST_DURATION_MS);
   };
 
+  // Saves go to the case this panel was mounted for. They never block or undo
+  // the panel: a failure is only logged (ADR 0010, ticket 22).
+  const persistDecision = (decision: "aceptado" | "anulado" | null, nivel: ManchesterKey | null) => {
+    if (caseNumber === null) return;
+    saveDecision(caseNumber, decision, nivel).catch((error) =>
+      console.error("No se pudo guardar la decisión", error),
+    );
+  };
+
+  // Called when the clinician leaves the note field or closes it. On failure
+  // the text counts as unsent again, so the next blur retries it.
+  const persistNote = () => {
+    if (caseNumber === null || note === lastSavedNote.current) return;
+    const previous = lastSavedNote.current;
+    lastSavedNote.current = note;
+    saveNote(caseNumber, note).catch((error) => {
+      if (lastSavedNote.current === note) lastSavedNote.current = previous;
+      console.error("No se pudo guardar la nota", error);
+    });
+  };
+
   // Releases whichever human decision the toast's Deshacer refers to: the
   // level returns to the AI's control and the confidence bar reappears
   // (ADR 0006). Only ever undoes the most recent decision, not a stack.
   const undoDecision = () => {
+    persistDecision(null, null);
     setLevelKey(null);
     setOverridden(false);
     setAccepted(false);
@@ -199,6 +227,7 @@ export default function RecommendationPanel({
   };
 
   const pickLevel = (key: ManchesterKey) => {
+    persistDecision("anulado", key);
     setLevelKey(key);
     setOverridden(true);
     setAccepted(false);
@@ -209,6 +238,7 @@ export default function RecommendationPanel({
 
   const accept = () => {
     if (!shownLevelKey) return;
+    persistDecision("aceptado", shownLevelKey);
     setLevelKey(shownLevelKey);
     setAccepted(true);
     setOverrideOpen(false);
@@ -238,6 +268,7 @@ export default function RecommendationPanel({
   };
 
   const toggleNote = () => {
+    if (noteOpen) persistNote();
     setNoteOpen((open) => !open);
     setOverrideOpen(false);
   };
@@ -430,6 +461,7 @@ export default function RecommendationPanel({
             <textarea
               value={note}
               onChange={(e) => setNote(e.target.value)}
+              onBlur={persistNote}
               placeholder="Nota del clínico para este caso…"
               className="h-16 w-full resize-none rounded-[10px] border-[1.5px] border-[#d2d5da] bg-[#fbfbfc] px-3 py-2.5 font-sans text-[14px] text-[#262a30] outline-none"
             />

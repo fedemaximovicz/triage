@@ -124,6 +124,7 @@ export default function CaseView() {
         key={`recommendation-${activeCase?.number ?? "empty"}`}
         recommendation={recommendation}
         hasCase={activeCase !== null}
+        caseNumber={activeCase?.number ?? null}
       />
       <dialog
         ref={discardDialog}

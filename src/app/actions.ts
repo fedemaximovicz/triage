@@ -2,7 +2,12 @@
 
 import { SimpleChatEngine, type ChatMessage } from "llamaindex";
 import { Ollama } from "@llamaindex/ollama";
-import { insertCase, saveTurn } from "@/lib/db";
+import {
+  insertCase,
+  saveDecision as writeDecision,
+  saveNote as writeNote,
+  saveTurn,
+} from "@/lib/db";
 import { retrieveContext, warmIndex } from "@/lib/rag";
 
 // Server-side model access: a local Ollama through LlamaIndex.TS (ADR 0008,
@@ -278,6 +283,34 @@ export async function startCase(caseId: number) {
 // marked `descartado` before the new one is created.
 export async function createCase(discardId?: number) {
   return insertCase(discardId);
+}
+
+// Saves the clinician's decision from the panel (ADR 0010). Server actions are
+// callable by anyone who can reach the app, so the arguments are checked rather
+// than trusted: a decision always comes with one of the five levels, and
+// Deshacer sends null for both.
+export async function saveDecision(
+  caseId: number,
+  decision: "aceptado" | "anulado" | null,
+  nivel: ManchesterKey | null,
+) {
+  if (!Number.isInteger(caseId)) throw new Error("Invalid case number");
+  if (decision === null) {
+    if (nivel !== null) throw new Error("A level needs a decision");
+  } else if (
+    (decision !== "aceptado" && decision !== "anulado") ||
+    nivel === null ||
+    !MANCHESTER_KEYS.includes(nivel)
+  ) {
+    throw new Error("Invalid decision");
+  }
+  writeDecision(caseId, decision, nivel);
+}
+
+// Saves the clinician's note; an empty or blank one is stored as null.
+export async function saveNote(caseId: number, note: string) {
+  if (!Number.isInteger(caseId) || typeof note !== "string") throw new Error("Invalid note");
+  writeNote(caseId, note.trim() === "" ? null : note);
 }
 
 export async function resetChatEngine() {
