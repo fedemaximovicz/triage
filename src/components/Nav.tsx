@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 // "Nuevo caso" starts a case on `/` and links back there from `/casos`;
-// "Casos abiertos" links to the list. The other items have no routing yet.
+// "Casos abiertos" links to the list.
 
 const ACTIVE_ITEM =
   "flex cursor-pointer items-center gap-3 rounded-[10px] border border-black/[0.12] bg-[#e2e4e8] px-3 py-[11px] text-left font-semibold text-[#262a30] shadow-[0_1px_2px_rgba(0,0,0,0.05)] hover:bg-[#d3d6db]";
@@ -62,15 +62,6 @@ export default function Nav({
             <span className="text-[15px]">Nuevo caso</span>
           </Link>
         )}
-
-        {/* Documentos */}
-        <div className={IDLE_ITEM}>
-          <span className="relative block h-4 w-[14px] rounded-[2px] border-[1.6px] border-current">
-            <span className="absolute left-0.5 right-0.5 top-1 h-[1.6px] bg-current" />
-            <span className="absolute left-0.5 right-0.5 top-2 h-[1.6px] bg-current" />
-          </span>
-          <span className="text-[15px]">Documentos</span>
-        </div>
       </div>
     </nav>
   );

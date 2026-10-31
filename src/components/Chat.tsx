@@ -81,9 +81,6 @@ export default function Chat({
       {/* Composer */}
       <div className="flex-none px-[30px] pt-4 pb-[22px]">
         <div className="mx-auto max-w-[760px]">
-          <div className="mb-3 flex items-center gap-[9px] rounded-xl border-[1.5px] border-dashed border-black/[0.22] px-4 py-[11px] text-[13.5px] text-[#7c828c]">
-            <span className="text-[15px]">⤒</span> Arrastra PDF, informe de ambulancia o analítica para adjuntar
-          </div>
           <div className="flex items-center gap-2.5 rounded-[14px] border-[1.5px] border-[#262a30] bg-[#f7f8f9] py-2 pr-2 pl-[18px]">
             <input
               value={input}
@@ -98,9 +95,6 @@ export default function Chat({
               placeholder="Describe el estado del paciente…"
               className="min-w-0 flex-1 border-none bg-transparent py-2 font-sans text-[16px] text-[#262a30] outline-none disabled:opacity-50"
             />
-            <button className="flex items-center gap-[7px] rounded-[9px] border-none bg-transparent px-3 py-[9px] font-sans text-[14px] text-[#6a6f78] hover:bg-black/5">
-              <span className="text-[15px]">🖇</span>Adjuntar
-            </button>
             <button
               onClick={handleSend}
               disabled={analyzing || !activeCase}

@@ -105,7 +105,7 @@ function buildInstructedMessage(query: string): string {
 
 ---
 Instrucciones para tu respuesta (no se las menciones al clínico):
-1. Respondé primero en prosa, en español, dirigido al clínico, como en cualquier conversación.
+1. Respondé primero en prosa, en español, dirigido al clínico, como en cualquier conversación. Dirigite a quien escribe de forma genérica: nunca uses "doctor", "doctora", "enfermero" ni ningún otro título o profesión.
 2. Al final de tu respuesta agregá siempre un bloque de código que empiece con una línea \`\`\`json y termine con una línea \`\`\`, con esta forma exacta. Omití cualquier campo que no puedas determinar con lo que el clínico escribió — nunca inventes un valor, y nunca inventes la identidad del paciente:
 {
   "motivo": "string",
@@ -126,7 +126,7 @@ Instrucciones para tu respuesta (no se las menciones al clínico):
 // case starts, and never shown in the thread. Wording is provisional — it is
 // tuned against the real model, and a model that answers with a list of
 // questions has not met the ticket.
-const INITIAL_TRIAGE_PROMPT = `Acaba de empezar un caso de triage nuevo y todavía no sabés nada del paciente. Vas a entrevistar al clínico de a una pregunta por vez. Saludá en una sola frase y hacé UNA sola pregunta, la más útil ahora; nunca una lista ni varias preguntas juntas. En cada respuesta seguí pidiendo lo que todavía falte para el triage, y nunca des la entrevista por terminada. En cuanto el clínico te dé algo útil, completá "nivel" y "confianza" con tu mejor lectura provisional, y corregila cuando el cuadro cambie. Como en todas tus respuestas, cerrá con el bloque \`\`\`json.`;
+const INITIAL_TRIAGE_PROMPT = `Acaba de empezar un caso de triage nuevo y todavía no sabés nada del paciente. Vas a entrevistar al clínico de a una pregunta por vez. Tu primer mensaje es una sola frase breve: preguntá cuál es el estado del paciente, sin agregar ninguna otra pregunta. Después hacé siempre UNA sola pregunta, la más útil en ese momento; nunca una lista ni varias preguntas juntas. En cada respuesta seguí pidiendo lo que todavía falte para el triage, y nunca des la entrevista por terminada. En cuanto el clínico te dé algo útil, completá "nivel" y "confianza" con tu mejor lectura provisional, y corregila cuando el cuadro cambie. Como en todas tus respuestas, cerrá con el bloque \`\`\`json.`;
 
 const JSON_FENCE = /```(?:json)?\s*([\s\S]*?)```/gi;
 
