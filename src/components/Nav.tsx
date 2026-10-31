@@ -34,12 +34,6 @@ export default function Nav({
 
       {/* Items */}
       <div className="flex flex-col gap-[3px]">
-        {/* Inicio */}
-        <div className={IDLE_ITEM}>
-          <span className="block h-4 w-4 rounded-[3px] border-[1.6px] border-current" />
-          <span className="text-[15px]">Inicio</span>
-        </div>
-
         {/* Casos abiertos */}
         <Link
           href="/casos"
@@ -76,15 +70,6 @@ export default function Nav({
             <span className="absolute left-0.5 right-0.5 top-2 h-[1.6px] bg-current" />
           </span>
           <span className="text-[15px]">Documentos</span>
-        </div>
-
-        {/* Estadísticas */}
-        <div className={IDLE_ITEM}>
-          <span className="relative block h-4 w-4 rounded-full border-[1.6px] border-current">
-            <span className="absolute left-[7px] top-[3px] h-1.5 w-[1.6px] bg-current" />
-            <span className="absolute left-[7px] top-[7px] h-[1.6px] w-[5px] bg-current" />
-          </span>
-          <span className="text-[15px]">Estadísticas</span>
         </div>
       </div>
     </nav>

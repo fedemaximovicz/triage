@@ -28,6 +28,7 @@ function openDb(): DatabaseSync {
       decision    TEXT CHECK (decision IN ('aceptado', 'anulado')),
       nivel_final TEXT,
       nota        TEXT,
+      paciente    TEXT,
       updated_at  TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS messages (
@@ -41,6 +42,12 @@ function openDb(): DatabaseSync {
       SELECT 'cases', ${FIRST_CASE_NUMBER - 1}
       WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'cases');
   `);
+  // CREATE TABLE IF NOT EXISTS leaves an older database as it was, so a cases
+  // table from before the patient name existed gets the column added here.
+  const columns = database.prepare("PRAGMA table_info(cases)").all();
+  if (!columns.some((column) => column.name === "paciente")) {
+    database.exec("ALTER TABLE cases ADD COLUMN paciente TEXT");
+  }
   return database;
 }
 
@@ -122,6 +129,7 @@ export type OpenCase = {
   motivo: string | null;
   decision: "aceptado" | "anulado" | null;
   nivelFinal: string | null;
+  paciente: string | null;
 };
 
 // The saved cases that were not discarded, newest first, for Casos abiertos.
@@ -129,7 +137,7 @@ export type OpenCase = {
 export function listOpenCases(): OpenCase[] {
   const rows = getDb()
     .prepare(
-      "SELECT id, started_at, nivel_ia, motivo, decision, nivel_final FROM cases WHERE status = 'en_curso' ORDER BY id DESC",
+      "SELECT id, started_at, nivel_ia, motivo, decision, nivel_final, paciente FROM cases WHERE status = 'en_curso' ORDER BY id DESC",
     )
     .all();
   return rows.map((row) => ({
@@ -139,6 +147,7 @@ export function listOpenCases(): OpenCase[] {
     motivo: (row.motivo as string | null) ?? null,
     decision: (row.decision as OpenCase["decision"]) ?? null,
     nivelFinal: (row.nivel_final as string | null) ?? null,
+    paciente: (row.paciente as string | null) ?? null,
   }));
 }
 
@@ -147,4 +156,11 @@ export function saveNote(caseId: number, nota: string | null): void {
   getDb()
     .prepare("UPDATE cases SET nota = ?, updated_at = ? WHERE id = ?")
     .run(nota, new Date().toISOString(), caseId);
+}
+
+// Saves the patient's name as the clinician typed it; null is no name.
+export function savePatientName(caseId: number, paciente: string | null): void {
+  getDb()
+    .prepare("UPDATE cases SET paciente = ?, updated_at = ? WHERE id = ?")
+    .run(paciente, new Date().toISOString(), caseId);
 }

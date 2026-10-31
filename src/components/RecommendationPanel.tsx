@@ -1,15 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { saveDecision, saveNote } from "@/app/actions";
-import type { Recommendation } from "@/components/CaseView";
+import { saveDecision, saveNote, savePatientName } from "@/app/actions";
+import type { ClinicianData, Recommendation, Vital } from "@/components/CaseView";
 import { LEVELS, type ManchesterKey } from "@/lib/manchester";
 
 // Right column — recommendation panel. Ported from
 // docs/reference/mockup-nuevo-caso.html (ticket 04 display, ticket 05
 // actions). Anular/Aceptar/Deshacer/+ Nota update the panel's own state
 // first and are then saved with the case, fire-and-forget (ADR 0010).
-// Manchester colors apply only once the clinician overrides.
+// Clicking the level card picks a level without saving it; only Aceptar or
+// Anular save a decision. Manchester colors apply only once the clinician overrides.
 
 const REASONING = ["[razonamiento clínico]", "[razonamiento clínico]", "[razonamiento clínico]"];
 const MISSING = ["[dato faltante]", "[dato faltante]", "[dato faltante]"];
@@ -24,6 +25,18 @@ const VITALS: { label: string; value: string; unit: string }[] = [
 ];
 
 const ORDER: ManchesterKey[] = ["rojo", "naranja", "amarillo", "verde", "azul"];
+
+// Matches the server's cap on what the clinician sends with a turn.
+const MAX_FIELD_LENGTH = 100;
+
+// The vital being edited below the grid. `editing` is the label of the vital
+// being corrected (its label stays fixed), or null for a new one.
+type VitalDraft = Vital & { editing: string | null };
+
+// A clinician vital replaces the model's vital with the same label.
+function sameLabel(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
 
 const TOAST_DURATION_MS = 2800;
 const ANULAR_CONFIRM_MS = 4000;
@@ -40,19 +53,28 @@ export default function RecommendationPanel({
   recommendation,
   hasCase,
   caseNumber,
+  onClinicianDataChange,
 }: {
   recommendation: Recommendation | null;
   hasCase: boolean;
   caseNumber: number | null;
+  onClinicianDataChange: (data: ClinicianData) => void;
 }) {
   const [levelKey, setLevelKey] = useState<ManchesterKey | null>(null);
   const [overridden, setOverridden] = useState(false);
   const [accepted, setAccepted] = useState(false);
-  const [overrideOpen, setOverrideOpen] = useState(false);
+  // Which level picker is open: the one under the card, or Anular's.
+  const [picker, setPicker] = useState<"tarjeta" | "anular" | null>(null);
   const [noteOpen, setNoteOpen] = useState(false);
   const [note, setNote] = useState("");
   // The note text the server last received, so an unchanged note isn't re-sent.
   const lastSavedNote = useRef("");
+  const [patientName, setPatientName] = useState("");
+  const lastSavedPatientName = useRef("");
+  // Vitals the clinician corrected or added. No AI turn overwrites them; the
+  // model keeps updating only the ones nobody touched. Not saved with the case.
+  const [clinicianVitals, setClinicianVitals] = useState<Vital[]>([]);
+  const [vitalDraft, setVitalDraft] = useState<VitalDraft | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   // Set only for the toast Aceptar/Anular raise, so Deshacer can release
   // whichever of the two just happened — cleared with the toast itself.
@@ -80,6 +102,11 @@ export default function RecommendationPanel({
     };
   }, []);
 
+  // Keeps CaseView's copy current so the next turn carries it as context.
+  useEffect(() => {
+    onClinicianDataChange({ paciente: patientName.trim(), signosVitales: clinicianVitals });
+  }, [patientName, clinicianVitals, onClinicianDataChange]);
+
   // ADR 0005: a valid recommendation replaces every field the panel was
   // showing; a field this turn didn't supply falls back to its placeholder,
   // not the previous turn's value. nivel and confianza are the one
@@ -98,18 +125,33 @@ export default function RecommendationPanel({
     }
   }
 
-  // ADR 0005 precedence: once a human decision is in force (Anular or
-  // Aceptar), no later AI turn moves the card — it shows `levelKey`, not
-  // the AI's `display.nivel`. Before any decision, the card shows the AI's
-  // suggestion provisionally. `shownLevelKey` is also what Aceptar fixes
-  // when clicked, whichever of the two is currently on screen.
+  // ADR 0005 precedence: once the clinician sets a level (picked from the
+  // card, or fixed with Anular or Aceptar), no later AI turn moves the card —
+  // it shows `levelKey`, not the AI's `display.nivel`. Before that, the card
+  // shows the AI's suggestion provisionally. A level picked from the card is
+  // provisional too until Aceptar. `shownLevelKey` is what Aceptar fixes
+  // when clicked, whichever level is currently on screen.
   const aiLevelKey = display.nivel ?? null;
   const humanDecisionActive = overridden || accepted;
+  const humanLevelActive = levelKey !== null;
   const shownLevelKey = levelKey ?? aiLevelKey;
   const cardLevel = shownLevelKey ? LEVELS[shownLevelKey] : null;
-  const isProvisional = !humanDecisionActive && aiLevelKey !== null;
-  const aiSuggestsDifferently = humanDecisionActive && aiLevelKey !== null && aiLevelKey !== levelKey;
+  const isProvisional = !humanDecisionActive && shownLevelKey !== null;
+  const aiSuggestsDifferently = humanLevelActive && aiLevelKey !== null && aiLevelKey !== levelKey;
   const confianzaPct = normalizeConfianza(display.confianza);
+
+  // The model's vitals, each replaced in place by the clinician's vital with
+  // the same label, then the clinician's vitals the model doesn't have.
+  const aiVitals = display.signosVitales ?? [];
+  const shownVitals = [
+    ...aiVitals.map((v) => {
+      const own = clinicianVitals.find((c) => sameLabel(c.label, v.label));
+      return { vital: own ?? v, byClinician: own !== undefined };
+    }),
+    ...clinicianVitals
+      .filter((c) => !aiVitals.some((v) => sameLabel(v.label, c.label)))
+      .map((vital) => ({ vital, byClinician: true })),
+  ];
 
   const showToast = (message: string, undo?: () => void) => {
     setToast(message);
@@ -142,6 +184,19 @@ export default function RecommendationPanel({
     });
   };
 
+  // Same as the note: saved when the clinician leaves the name field, only
+  // if it changed, and retried on the next blur if the save failed.
+  const persistPatientName = () => {
+    const name = patientName.trim();
+    if (caseNumber === null || name === lastSavedPatientName.current) return;
+    const previous = lastSavedPatientName.current;
+    lastSavedPatientName.current = name;
+    savePatientName(caseNumber, name).catch((error) => {
+      if (lastSavedPatientName.current === name) lastSavedPatientName.current = previous;
+      console.error("No se pudo guardar el nombre del paciente", error);
+    });
+  };
+
   // Releases whichever human decision the toast's Deshacer refers to: the
   // level returns to the AI's control and the confidence bar reappears
   // (ADR 0006). Only ever undoes the most recent decision, not a stack.
@@ -160,9 +215,50 @@ export default function RecommendationPanel({
     setLevelKey(key);
     setOverridden(true);
     setAccepted(false);
-    setOverrideOpen(false);
+    setPicker(null);
     setAnularConfirmPending(false);
     showToast(`Nivel anulado → ${LEVELS[key].label}`, undoDecision);
+  };
+
+  // Picking from the card only moves the card: nothing is saved until
+  // Aceptar. A decision already in force is released, so the saved decision
+  // never disagrees with the level on screen.
+  const chooseLevel = (key: ManchesterKey) => {
+    if (humanDecisionActive) persistDecision(null, null);
+    setLevelKey(key);
+    setOverridden(false);
+    setAccepted(false);
+    setPicker(null);
+    setAnularConfirmPending(false);
+    clearTimeout(anularConfirmTimeout.current);
+  };
+
+  // A corrected vital keeps its place in the clinician's list; a new label is
+  // appended. Signo and valor are required, unidad isn't.
+  const saveVitalDraft = () => {
+    if (!vitalDraft) return;
+    const vital = {
+      label: vitalDraft.label.trim(),
+      value: vitalDraft.value.trim(),
+      unit: vitalDraft.unit.trim(),
+    };
+    if (!vital.label || !vital.value) return;
+    setClinicianVitals((prev) =>
+      prev.some((c) => sameLabel(c.label, vital.label))
+        ? prev.map((c) => (sameLabel(c.label, vital.label) ? vital : c))
+        : [...prev, vital],
+    );
+    setVitalDraft(null);
+  };
+
+  // Drops the clinician's version; the model's vital, if any, shows again.
+  const removeClinicianVital = (label: string) => {
+    setClinicianVitals((prev) => prev.filter((c) => !sameLabel(c.label, label)));
+    setVitalDraft(null);
+  };
+
+  const toggleCardPicker = () => {
+    setPicker((open) => (open === "tarjeta" ? null : "tarjeta"));
   };
 
   const accept = () => {
@@ -170,7 +266,7 @@ export default function RecommendationPanel({
     persistDecision("aceptado", shownLevelKey);
     setLevelKey(shownLevelKey);
     setAccepted(true);
-    setOverrideOpen(false);
+    setPicker(null);
     setAnularConfirmPending(false);
     clearTimeout(anularConfirmTimeout.current);
     showToast(`Triage confirmado · ${LEVELS[shownLevelKey].label}`, undoDecision);
@@ -180,8 +276,8 @@ export default function RecommendationPanel({
   // Aceptar), but un-confirming a confirmed triage needs a second click on
   // this same button rather than opening the picker on the first one.
   const handleAnularClick = () => {
-    if (overrideOpen) {
-      setOverrideOpen(false);
+    if (picker === "anular") {
+      setPicker(null);
       return;
     }
     if (accepted && !anularConfirmPending) {
@@ -192,15 +288,35 @@ export default function RecommendationPanel({
     }
     clearTimeout(anularConfirmTimeout.current);
     setAnularConfirmPending(false);
-    setOverrideOpen(true);
+    setPicker("anular");
     setNoteOpen(false);
   };
 
   const toggleNote = () => {
     if (noteOpen) persistNote();
     setNoteOpen((open) => !open);
-    setOverrideOpen(false);
+    setPicker(null);
   };
+
+  // The handlers are named only inside onClick: passing one in as an argument
+  // reads, to the React Compiler, as touching its refs during render.
+  const levelOptions = (from: "tarjeta" | "anular") =>
+    ORDER.map((key) => {
+      const lv = LEVELS[key];
+      return (
+        <div
+          key={key}
+          onClick={() => (from === "tarjeta" ? chooseLevel(key) : pickLevel(key))}
+          className="flex cursor-pointer items-center gap-3 rounded-[9px] px-2.5 py-2.5 hover:bg-black/5"
+        >
+          <span className="h-4 w-4 flex-none rounded-full" style={{ background: lv.dot }} />
+          <span className="w-[82px] text-[15px] font-bold" style={{ color: lv.ink }}>
+            {lv.label}
+          </span>
+          <span className="text-[13px] text-[#7c828c]">{lv.sub}</span>
+        </div>
+      );
+    });
 
   return (
     <aside className="relative flex w-[clamp(360px,31vw,452px)] flex-none flex-col overflow-hidden bg-[#f5f6f7]">
@@ -230,8 +346,19 @@ export default function RecommendationPanel({
         {/* Patient */}
         <div className="mb-4 flex items-start gap-3.5">
           <div className="h-[52px] w-[52px] flex-none rounded-full border border-black/[0.15] bg-[image:repeating-linear-gradient(135deg,#dcdee2_0_6px,#d3d6db_6px_12px)]" />
-          <div className="pt-0.5">
-            <div className="text-[21px] font-bold tracking-[-0.01em]">Paciente sin identificar</div>
+          <div className="min-w-0 flex-1 pt-0.5">
+            <input
+              value={patientName}
+              onChange={(e) => setPatientName(e.target.value)}
+              onBlur={persistPatientName}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+              }}
+              placeholder="Paciente sin identificar"
+              maxLength={MAX_FIELD_LENGTH}
+              aria-label="Nombre del paciente"
+              className="-mx-1.5 w-full rounded-md border border-transparent bg-transparent px-1.5 text-[21px] font-bold tracking-[-0.01em] text-[#262a30] outline-none placeholder:text-[#262a30] hover:border-[#d2d5da] focus:border-[#b7bcc4] focus:bg-[#fbfbfc] focus:placeholder:text-[#9aa0aa]"
+            />
             <div className="mt-[3px] text-[13px] text-[#7c828c]">Sin datos de admisión</div>
           </div>
         </div>
@@ -251,17 +378,115 @@ export default function RecommendationPanel({
           <span className="text-[12px] font-bold tracking-[0.09em] text-[#7c828c]">SIGNOS VITALES</span>
           <span className="text-[11px] italic text-[#9aa0aa]">leído de la conversación</span>
         </div>
+        {/* Click a vital to correct it; placeholders aren't editable, only
+            the add card next to them. */}
         <div className="grid grid-cols-3 gap-2.5">
-          {(display.signosVitales ?? VITALS).map((v, i) => (
-            <div key={i} className="rounded-[10px] border-[1.5px] border-[#d2d5da] bg-[#f7f8f9] px-3 py-2.5">
-              <div className="mb-[3px] text-[11.5px] text-[#7c828c]">{v.label}</div>
-              <div>
-                <span className="text-[20px] font-bold">{v.value}</span>{" "}
-                <span className="text-[11.5px] text-[#7c828c]">{v.unit}</span>
-              </div>
-            </div>
-          ))}
+          {shownVitals.length > 0
+            ? shownVitals.map(({ vital: v, byClinician }, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setVitalDraft({ ...v, editing: v.label })}
+                  className={`cursor-pointer rounded-[10px] border-[1.5px] px-3 py-2.5 text-left hover:bg-[#eef0f2] ${
+                    byClinician ? "border-[#157f74] bg-[#f7f8f9]" : "border-[#d2d5da] bg-[#f7f8f9]"
+                  }`}
+                >
+                  <div className="mb-[3px] truncate text-[11.5px] text-[#7c828c]">
+                    {v.label}
+                    {byClinician && <span className="font-semibold text-[#157f74]"> · clínico</span>}
+                  </div>
+                  <div className="truncate">
+                    <span className="text-[20px] font-bold">{v.value}</span>{" "}
+                    <span className="text-[11.5px] text-[#7c828c]">{v.unit}</span>
+                  </div>
+                </button>
+              ))
+            : VITALS.map((v, i) => (
+                <div key={i} className="rounded-[10px] border-[1.5px] border-[#d2d5da] bg-[#f7f8f9] px-3 py-2.5">
+                  <div className="mb-[3px] text-[11.5px] text-[#7c828c]">{v.label}</div>
+                  <div>
+                    <span className="text-[20px] font-bold">{v.value}</span>{" "}
+                    <span className="text-[11.5px] text-[#7c828c]">{v.unit}</span>
+                  </div>
+                </div>
+              ))}
+          <button
+            type="button"
+            onClick={() => setVitalDraft({ label: "", value: "", unit: "", editing: null })}
+            className="cursor-pointer rounded-[10px] border-[1.5px] border-dashed border-[#b7bcc4] px-3 py-2.5 text-[13px] font-semibold text-[#565b63] hover:bg-[#eef0f2]"
+          >
+            + Signo vital
+          </button>
         </div>
+
+        {vitalDraft && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              saveVitalDraft();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setVitalDraft(null);
+            }}
+            className="mt-2.5 rounded-[10px] border-[1.5px] border-[#b7bcc4] bg-[#fbfbfc] p-2.5"
+          >
+            <div className="flex gap-2">
+              <input
+                value={vitalDraft.label}
+                onChange={(e) => setVitalDraft({ ...vitalDraft, label: e.target.value })}
+                disabled={vitalDraft.editing !== null}
+                autoFocus={vitalDraft.editing === null}
+                maxLength={MAX_FIELD_LENGTH}
+                placeholder="Signo"
+                aria-label="Signo vital"
+                className="min-w-0 flex-[2] rounded-md border border-[#d2d5da] bg-white px-2 py-1.5 text-[13.5px] outline-none focus:border-[#7c828c] disabled:bg-[#eef0f2] disabled:text-[#565b63]"
+              />
+              <input
+                value={vitalDraft.value}
+                onChange={(e) => setVitalDraft({ ...vitalDraft, value: e.target.value })}
+                autoFocus={vitalDraft.editing !== null}
+                maxLength={MAX_FIELD_LENGTH}
+                placeholder="Valor"
+                aria-label="Valor"
+                className="min-w-0 flex-[1.5] rounded-md border border-[#d2d5da] bg-white px-2 py-1.5 text-[13.5px] outline-none focus:border-[#7c828c]"
+              />
+              <input
+                value={vitalDraft.unit}
+                onChange={(e) => setVitalDraft({ ...vitalDraft, unit: e.target.value })}
+                maxLength={MAX_FIELD_LENGTH}
+                placeholder="Unidad"
+                aria-label="Unidad"
+                className="min-w-0 flex-1 rounded-md border border-[#d2d5da] bg-white px-2 py-1.5 text-[13.5px] outline-none focus:border-[#7c828c]"
+              />
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              {vitalDraft.editing !== null &&
+                clinicianVitals.some((c) => sameLabel(c.label, vitalDraft.label)) && (
+                  <button
+                    type="button"
+                    onClick={() => removeClinicianVital(vitalDraft.label)}
+                    className="text-[12.5px] font-semibold text-[#a41f14] hover:underline"
+                  >
+                    Quitar mi dato
+                  </button>
+                )}
+              <button
+                type="button"
+                onClick={() => setVitalDraft(null)}
+                className="ml-auto rounded-[8px] px-3 py-1.5 text-[13px] font-semibold text-[#565b63] hover:bg-black/5"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={!vitalDraft.label.trim() || !vitalDraft.value.trim()}
+                className="rounded-[8px] bg-[#262a30] px-3 py-1.5 text-[13px] font-semibold text-[#f5f6f7] hover:bg-black disabled:opacity-40"
+              >
+                Guardar
+              </button>
+            </div>
+          </form>
+        )}
 
         <div className="my-5 border-t border-dashed border-black/20" />
 
@@ -272,10 +497,13 @@ export default function RecommendationPanel({
 
         {/* Level card — AI suggestion shows provisionally until a human
             decision fixes it in full-weight colour (ADR 0005, reverses
-            spec Q15b/Q16b) */}
+            spec Q15b/Q16b). Clicking it opens the level picker below. */}
         {cardLevel ? (
-          <div
-            className="flex items-center gap-[15px] rounded-[13px] px-5 py-[17px]"
+          <button
+            type="button"
+            onClick={toggleCardPicker}
+            aria-expanded={picker === "tarjeta"}
+            className="flex w-full cursor-pointer items-center gap-[15px] rounded-[13px] px-5 py-[17px] text-left hover:brightness-[0.97]"
             style={{
               background: cardLevel.cardBg,
               border: `1.5px ${isProvisional ? "dashed" : "solid"} ${cardLevel.cardBd}`,
@@ -295,7 +523,7 @@ export default function RecommendationPanel({
               <div className="mt-1 text-[14px] text-[#565b63]">{cardLevel.sub}</div>
               {isProvisional && (
                 <div className="mt-1 text-[11px] font-semibold tracking-[0.04em] text-[#9aa0aa] uppercase">
-                  Sugerido por IA · sin confirmar
+                  {humanLevelActive ? "Elegido por clínico · sin confirmar" : "Sugerido por IA · sin confirmar"}
                 </div>
               )}
             </div>
@@ -306,14 +534,28 @@ export default function RecommendationPanel({
                 por clínico
               </div>
             )}
-          </div>
+          </button>
         ) : (
-          <div className="flex items-center gap-[15px] rounded-[13px] border-[1.5px] border-[#d2d5da] bg-[#eef0f2] px-5 py-[17px]">
+          <button
+            type="button"
+            onClick={toggleCardPicker}
+            aria-expanded={picker === "tarjeta"}
+            className="flex w-full cursor-pointer items-center gap-[15px] rounded-[13px] border-[1.5px] border-[#d2d5da] bg-[#eef0f2] px-5 py-[17px] text-left hover:bg-[#e6e8eb]"
+          >
             <div className="h-[22px] w-[22px] flex-none rounded-full bg-[#b7bcc4]" />
             <div>
               <div className="text-[26px] leading-none font-bold tracking-[0.02em] text-[#565b63]">[nivel]</div>
               <div className="mt-1 text-[14px] text-[#565b63]">[subtítulo]</div>
             </div>
+          </button>
+        )}
+
+        {picker === "tarjeta" && (
+          <div className="mt-2 rounded-[13px] border-[1.5px] border-[#262a30] bg-[#fbfbfc] p-2.5 shadow-[0_12px_34px_rgba(0,0,0,0.2)]">
+            <div className="px-2 pt-1.5 pb-2 text-[12px] font-bold tracking-[0.06em] text-[#7c828c]">
+              SELECCIONA NIVEL MANCHESTER
+            </div>
+            {levelOptions("tarjeta")}
           </div>
         )}
 
@@ -326,10 +568,10 @@ export default function RecommendationPanel({
           </div>
         )}
 
-        {/* Confidence — hidden once a human decision is in force (ADR 0005):
+        {/* Confidence — hidden once the clinician set the level (ADR 0005):
             that number is the model's self-report, and showing it next to a
             level a person chose would attribute it to the person. */}
-        {!humanDecisionActive && (
+        {!humanLevelActive && (
           <>
             <div className="mt-4 mb-[7px] flex items-center justify-between">
               <span className="text-[13.5px] font-semibold">Confianza</span>
@@ -397,27 +639,12 @@ export default function RecommendationPanel({
           </div>
         )}
 
-        {overrideOpen && (
+        {picker === "anular" && (
           <div className="absolute right-[26px] bottom-[118px] left-[26px] z-[15] rounded-[13px] border-[1.5px] border-[#262a30] bg-[#fbfbfc] p-2.5 shadow-[0_12px_34px_rgba(0,0,0,0.2)]">
             <div className="px-2 pt-1.5 pb-2 text-[12px] font-bold tracking-[0.06em] text-[#7c828c]">
               ANULAR → SELECCIONA NIVEL MANCHESTER
             </div>
-            {ORDER.map((key) => {
-              const lv = LEVELS[key];
-              return (
-                <div
-                  key={key}
-                  onClick={() => pickLevel(key)}
-                  className="flex cursor-pointer items-center gap-3 rounded-[9px] px-2.5 py-2.5 hover:bg-black/5"
-                >
-                  <span className="h-4 w-4 flex-none rounded-full" style={{ background: lv.dot }} />
-                  <span className="w-[82px] text-[15px] font-bold" style={{ color: lv.ink }}>
-                    {lv.label}
-                  </span>
-                  <span className="text-[13px] text-[#7c828c]">{lv.sub}</span>
-                </div>
-              );
-            })}
+            {levelOptions("anular")}
           </div>
         )}
 

@@ -6,6 +6,7 @@ import {
   insertCase,
   saveDecision as writeDecision,
   saveNote as writeNote,
+  savePatientName as writePatientName,
   saveTurn,
 } from "@/lib/db";
 import { retrieveContext, warmIndex } from "@/lib/rag";
@@ -199,12 +200,63 @@ Usalo sólo como referencia. Lo que el clínico dijo sobre el paciente tiene pri
   };
 }
 
-export async function chat(caseId: number, query: string) {
+interface ClinicianData {
+  paciente: string;
+  signosVitales: Vital[];
+}
+
+const MAX_CLINICIAN_VITALS = 12;
+const MAX_CLINICIAN_FIELD_LENGTH = 100;
+
+// What the clinician typed into the panel, sent with each turn. Checked rather
+// than trusted like every server action argument: a malformed piece is dropped,
+// never the turn.
+function validateClinicianData(raw: unknown): ClinicianData {
+  const obj = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
+  const fits = (text: string) => text.length <= MAX_CLINICIAN_FIELD_LENGTH;
+  const paciente = typeof obj.paciente === "string" && fits(obj.paciente.trim()) ? obj.paciente.trim() : "";
+  const signosVitales = Array.isArray(obj.signosVitales)
+    ? obj.signosVitales
+        .filter((v): v is Vital => isVital(v) && fits(v.label) && fits(v.value) && fits(v.unit))
+        .slice(0, MAX_CLINICIAN_VITALS)
+    : [];
+  return { paciente, signosVitales };
+}
+
+// The clinician's own panel data for one turn. Like the contexto recuperado it
+// is sent with this call only, never added to memory, and it outranks what the
+// model read from the conversation. Nothing typed, no message.
+function buildClinicianMessage(data: ClinicianData): ChatMessage | null {
+  const lines: string[] = [];
+  if (data.paciente) lines.push(`Paciente: ${data.paciente}`);
+  if (data.signosVitales.length > 0) {
+    lines.push(
+      "Signos vitales:",
+      ...data.signosVitales.map((v) => `- ${v.label}: ${v.value}${v.unit ? ` ${v.unit}` : ""}`),
+    );
+  }
+  if (lines.length === 0) return null;
+  return {
+    role: "system",
+    content: `Datos que el clínico cargó a mano en el panel del caso (no se lo menciones al clínico):
+
+${lines.join("\n")}
+
+Son datos del clínico: tienen prioridad sobre lo que hayas leído en la conversación, y no hace falta que los vuelvas a pedir.`,
+  };
+}
+
+export async function chat(caseId: number, query: string, clinicianData?: ClinicianData) {
   // Retrieval uses only the clinician's own text, never the instructed message
   // (ADR 0009), and runs before anything is written to the history so a failed
   // lookup leaves the conversation as it was.
   const fragments = await retrieveContext(query);
-  const result = await runTurn(query, fragments);
+  const clinicianMessage = buildClinicianMessage(validateClinicianData(clinicianData));
+  const turnContext = [
+    ...(fragments.length > 0 ? [buildContextMessage(fragments)] : []),
+    ...(clinicianMessage ? [clinicianMessage] : []),
+  ];
+  const result = await runTurn(query, turnContext);
   // Saved only once the model has answered, both messages together: a failed
   // turn leaves nothing behind. The nurse row holds the clinician's raw text,
   // not the instructed message or the contexto recuperado (ADR 0010).
@@ -219,20 +271,17 @@ export async function chat(caseId: number, query: string) {
   return result;
 }
 
-async function runTurn(query: string, fragments: string[]) {
+async function runTurn(query: string, turnContext: ChatMessage[]) {
   // SimpleChatEngine.chat() can't take a message for one turn only, so its few
-  // steps are done here by hand. The context is added to the list sent with
-  // this call but never to memory, so the next turn doesn't resend it and
-  // ADR 0008's num_ctx isn't spent on it. No fragments, no message. It goes
-  // right before the current user message, not after it: llama3.2 answered a
-  // trailing system turn with a stray "assistant" prefix.
+  // steps are done here by hand. The turn's context (contexto recuperado,
+  // clinician's panel data) is added to the list sent with this call but never
+  // to memory, so the next turn doesn't resend it and ADR 0008's num_ctx isn't
+  // spent on it. It goes right before the current user message, not after it:
+  // llama3.2 answered a trailing system turn with a stray "assistant" prefix.
   const engine = activeEngine();
   await engine.memory.add({ role: "user", content: buildInstructedMessage(query) });
   const history = await engine.memory.getLLM(engine.llm);
-  const messages =
-    fragments.length > 0
-      ? [...history.slice(0, -1), buildContextMessage(fragments), history[history.length - 1]]
-      : history;
+  const messages = [...history.slice(0, -1), ...turnContext, history[history.length - 1]];
   const result = await engine.llm.chat({ messages, stream: false });
   await engine.memory.add(result.message);
 
@@ -311,6 +360,13 @@ export async function saveDecision(
 export async function saveNote(caseId: number, note: string) {
   if (!Number.isInteger(caseId) || typeof note !== "string") throw new Error("Invalid note");
   writeNote(caseId, note.trim() === "" ? null : note);
+}
+
+// Saves the patient's name from the panel; an empty or blank one is stored as null.
+export async function savePatientName(caseId: number, name: string) {
+  if (!Number.isInteger(caseId) || typeof name !== "string") throw new Error("Invalid patient name");
+  const trimmed = name.trim();
+  writePatientName(caseId, trimmed === "" ? null : trimmed);
 }
 
 export async function resetChatEngine() {

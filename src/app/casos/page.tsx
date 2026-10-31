@@ -47,6 +47,7 @@ export default function CasosPage() {
               <tr className="border-b border-black/[0.12] text-[12px] font-bold tracking-[0.08em] text-[#7c828c] uppercase">
                 <th className="py-2.5 pr-4 font-bold">Caso</th>
                 <th className="py-2.5 pr-4 font-bold">Inicio</th>
+                <th className="py-2.5 pr-4 font-bold">Paciente</th>
                 <th className="py-2.5 pr-4 font-bold">Nivel</th>
                 <th className="py-2.5 font-bold">Motivo</th>
               </tr>
@@ -59,6 +60,9 @@ export default function CasosPage() {
                   <tr key={row.id} className="border-b border-black/[0.07] align-top">
                     <td className="py-3 pr-4 font-mono font-bold">#{row.id}</td>
                     <td className="py-3 pr-4 whitespace-nowrap text-[#2e3138]">{formatStart(row.startedAt)}</td>
+                    <td className="py-3 pr-4 text-[#2e3138]">
+                      {row.paciente ?? <span className="text-[#7c828c]">sin identificar</span>}
+                    </td>
                     <td className="py-3 pr-4">
                       {level ? (
                         <div className="flex items-center gap-2.5">

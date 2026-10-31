@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { chat, createCase, startCase as startModelCase } from "@/app/actions";
 import Chat from "@/components/Chat";
 import Nav from "@/components/Nav";
@@ -28,6 +28,10 @@ export type Recommendation = {
   proximosPasos?: string[];
 };
 
+// What the clinician typed into the panel by hand. It outranks the model's
+// reading in the panel and is sent with the next turn as context.
+export type ClinicianData = { paciente: string; signosVitales: Vital[] };
+
 // The case in progress (ADR 0006). null means the app is in its empty state.
 // Held here so the conversation and the panel read the same fact.
 export type ActiveCase = { number: number; startedAt: Date };
@@ -40,6 +44,12 @@ export default function CaseView() {
   const [analyzing, setAnalyzing] = useState(false);
   const requestPending = useRef(false);
   const discardDialog = useRef<HTMLDialogElement>(null);
+  // Kept current by the panel, which remounts (and reports empty data) with
+  // each new case. A ref, not state: only the next turn reads it.
+  const clinicianData = useRef<ClinicianData>({ paciente: "", signosVitales: [] });
+  const reportClinicianData = useCallback((data: ClinicianData) => {
+    clinicianData.current = data;
+  }, []);
 
   // Both entry points use the same lifecycle. Guard synchronously against
   // double clicks before React has rendered the disabled controls.
@@ -86,7 +96,7 @@ export default function CaseView() {
     setAnalyzing(true);
     setMessages((prev) => [...prev, { kind: "nurse", text }]);
     try {
-      const result = await chat(activeCase.number, text);
+      const result = await chat(activeCase.number, text, clinicianData.current);
       setMessages((prev) => [...prev, { kind: "ai", text: result.response }]);
       setRecommendation(result.recommendation);
     } catch {
@@ -125,6 +135,7 @@ export default function CaseView() {
         recommendation={recommendation}
         hasCase={activeCase !== null}
         caseNumber={activeCase?.number ?? null}
+        onClinicianDataChange={reportClinicianData}
       />
       <dialog
         ref={discardDialog}
