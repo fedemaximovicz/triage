@@ -25,15 +25,15 @@ const STAGING_DIR = path.join(process.cwd(), ".rag-index.tmp");
 const HASH_FILE = "knowledge.hash";
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:11434";
-const DEFAULT_EMBED_MODEL = "bge-m3";
+const DEFAULT_EMBED_MODEL = "embeddinggemma";
 
 const CHUNK_SIZE = 512;
 const CHUNK_OVERLAP = 50;
 const TOP_K = 3;
 
-// PLACEHOLDER — not calibrated. There are no real protocol documents yet, so
-// this number is a guess at a cosine-similarity cut-off for bge-m3. Calibrate
-// it against the real base de conocimiento before trusting what it lets through.
+// PLACEHOLDER — not calibrated. This number is a guess at a cosine-similarity
+// cut-off, not measured for embeddinggemma. Calibrate it against the base de
+// conocimiento before trusting what it lets through.
 const SIMILARITY_THRESHOLD = 0.5;
 
 // Settings in 0.12.1 has no chunkOverlap, so the overlap needs an explicit splitter.
