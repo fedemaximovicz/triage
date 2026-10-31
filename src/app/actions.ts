@@ -373,3 +373,18 @@ export async function resetChatEngine() {
   // Dropping the engine drops its memory: the next turn builds a fresh one.
   chatEngine = null;
 }
+
+// Iniciar caso (ADR 0006, ADR 0007): the reset is chained ahead of the
+// initial prompt, awaited first, so a new case is never answered with the
+// previous case still in the model's context.
+export async function openCase() {
+  await resetChatEngine();
+  return chat(INITIAL_PROMPT);
+}
+
+// Reintentar (ticket 13, ADR 0007): re-sends the same fixed prompt as a fresh
+// turn, but skips the reset — that already happened when the case started,
+// and a retry must not touch the session a second time.
+export async function retryOpenCase() {
+  return chat(INITIAL_PROMPT);
+}

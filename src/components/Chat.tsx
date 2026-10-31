@@ -7,6 +7,10 @@ import type { ActiveCase, Message } from "@/components/CaseView";
 // (ticket 02). CaseView owns requests and messages so both start controls
 // share the same case lifecycle. A new case remounts this composer.
 
+function formatTime(date: Date): string {
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
 export default function Chat({
   activeCase,
   onStartCase,
@@ -27,6 +31,26 @@ export default function Chat({
     if (!activeCase || !text || analyzing) return;
     onSend(text);
     setInput("");
+  };
+
+  const handleStartCase = () => {
+    onStartCase();
+    runOpeningTurn(openCase);
+  };
+
+  const handleRetryOpening = () => runOpeningTurn(retryOpenCase);
+
+  // Descartar caso (ADR 0006, ticket 14): clears this thread's own state,
+  // hands the case-level reset (new number/time, panel clear) up to
+  // CaseView, then opens the fresh case exactly like handleStartCase does —
+  // reset chained ahead of the initial prompt (ticket 11).
+  const handleDiscardCase = () => {
+    setDiscardModalOpen(false);
+    setMessages([]);
+    setOwnMessageSent(false);
+    setOpeningFailed(false);
+    onDiscardCase();
+    runOpeningTurn(openCase);
   };
 
   return (
@@ -54,6 +78,32 @@ export default function Chat({
           </div>
         )}
       </header>
+
+      {discardModalOpen && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40">
+          <div className="mx-4 w-full max-w-[400px] rounded-[14px] border-[1.5px] border-[#262a30] bg-[#fbfbfc] p-6 shadow-[0_12px_34px_rgba(0,0,0,0.25)]">
+            <div className="text-[17px] font-bold text-[#262a30]">¿Descartar el caso actual?</div>
+            <p className="mt-2 text-[14px] leading-normal text-[#565b63]">
+              Se pierde toda la conversación, la recomendación, la nota y la decisión del clínico
+              sobre este caso. Esta acción no se puede deshacer.
+            </p>
+            <div className="mt-5 flex justify-end gap-2.5">
+              <button
+                onClick={() => setDiscardModalOpen(false)}
+                className="rounded-[9px] border-[1.5px] border-[#d2d5da] bg-[#f7f8f9] px-4 py-2 font-sans text-[14px] font-semibold text-[#2e3138] hover:bg-[#e9ebee]"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleDiscardCase}
+                className="rounded-[9px] border-[1.5px] border-[#262a30] bg-[#262a30] px-4 py-2 font-sans text-[14px] font-semibold text-[#f5f6f7] hover:bg-black"
+              >
+                Descartar caso
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Thread */}
       <div className="flex-1 overflow-y-auto px-[30px] pt-[26px] pb-3">

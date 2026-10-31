@@ -1,7 +1,7 @@
 # 09 — The panel renders the model's recommendation
 
 Blocked by: 08
-Status: todo
+Status: done
 
 ## Goal
 `RecommendationPanel` stops rendering placeholders and renders the
