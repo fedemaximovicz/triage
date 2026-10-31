@@ -31,15 +31,16 @@ const CHUNK_SIZE = 512;
 const CHUNK_OVERLAP = 50;
 const TOP_K = 3;
 
-// PLACEHOLDER — not calibrated. This number is a guess at a cosine-similarity
-// cut-off, not measured for embeddinggemma. Calibrate it against the base de
-// conocimiento before trusting what it lets through.
-const SIMILARITY_THRESHOLD = 0.5;
+// Cosine-similarity cut-off, measured for embeddinggemma with `pnpm eval:similarity`
+// (ADR 0013). It is a trade-off, not a clean separation: it rejects every off-topic
+// query and short reply in the evaluation set but still lets through neighbouring
+// documents. Measure again after a corpus or model change.
+const SIMILARITY_THRESHOLD = 0.3;
 
 // Settings in 0.12.1 has no chunkOverlap, so the overlap needs an explicit splitter.
 const splitter = new SentenceSplitter({ chunkSize: CHUNK_SIZE, chunkOverlap: CHUNK_OVERLAP });
 
-function embedModelName(): string {
+export function embedModelName(): string {
   return process.env.OLLAMA_EMBED_MODEL || DEFAULT_EMBED_MODEL;
 }
 
@@ -211,18 +212,31 @@ export function warmIndex(): void {
   });
 }
 
+export type ScoredFragment = { score: number; fileName: string; text: string };
+
+// The TOP_K fragments of the base de conocimiento closest to `query`, best
+// first, with their scores and before SIMILARITY_THRESHOLD is applied. Empty
+// when there is no index; an indexing or embedding failure rejects.
+export async function searchKnowledge(query: string): Promise<ScoredFragment[]> {
+  const knowledge = await getIndex();
+  if (!knowledge) return [];
+
+  const results = await knowledge.asRetriever({ similarityTopK: TOP_K }).retrieve({ query });
+
+  return results.map((result) => ({
+    score: result.score ?? 0,
+    fileName: String(result.node.metadata.fileName ?? ""),
+    text: result.node.getContent(MetadataMode.NONE),
+  }));
+}
+
 // The fragments of the base de conocimiento closest to `clinicianText`, best
 // first. `clinicianText` must be the clinician's own words — never the
 // instructed message, whose JSON instructions would drown them (ADR 0009).
 // Empty when there is no index or no fragment passes the threshold; an
 // indexing or embedding failure rejects.
 export async function retrieveContext(clinicianText: string): Promise<string[]> {
-  const knowledge = await getIndex();
-  if (!knowledge) return [];
+  const fragments = await searchKnowledge(clinicianText);
 
-  const results = await knowledge.asRetriever({ similarityTopK: TOP_K }).retrieve({ query: clinicianText });
-
-  return results
-    .filter((result) => (result.score ?? 0) >= SIMILARITY_THRESHOLD)
-    .map((result) => result.node.getContent(MetadataMode.NONE));
+  return fragments.filter((fragment) => fragment.score >= SIMILARITY_THRESHOLD).map((fragment) => fragment.text);
 }

@@ -28,6 +28,7 @@ Un ADR registra una decisión y sus motivos en un momento del proyecto. Los text
 | [0010](0010-cases-persisted-in-local-sqlite.md) | Casos y mensajes en SQLite | Persistencia actual; el nombre del paciente se agrega en 0011 |
 | [0011](0011-clinician-edits-in-the-panel.md) | Edición manual del panel | Nombre, signos y selección provisional de nivel |
 | [0012](0012-embeddinggemma-as-default-embedding-model.md) | Modelo de embeddings por defecto | `embeddinggemma` reemplaza a `bge-m3` nombrado en 0009 |
+| [0013](0013-similarity-threshold-measured-on-embeddinggemma.md) | Umbral de similitud medido | El umbral es 0,30, medido con `embeddinggemma`; reemplaza al valor provisional de 0009 y 0012 |
 
 ## Evolución principal
 

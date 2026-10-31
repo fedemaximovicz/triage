@@ -1,7 +1,7 @@
 # 25 — The similarity threshold is measured on embeddinggemma
 
 Blocked by: none
-Status: open
+Status: done
 
 ## Goal
 `SIMILARITY_THRESHOLD` stops being a guess. A repeatable evaluation runs a set

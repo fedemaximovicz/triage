@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "eval:similarity": "node scripts/eval-similarity.ts"
   },
   "dependencies": {
     "@llamaindex/ollama": "0.1.23",

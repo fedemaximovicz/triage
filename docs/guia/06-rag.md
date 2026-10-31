@@ -11,6 +11,7 @@
 - [Preparación y concurrencia](#preparación-y-concurrencia)
 - [Recuperación por turno](#recuperación-por-turno)
 - [Ejemplo completo](#ejemplo-completo)
+- [Calibración del umbral](#calibración-del-umbral)
 - [Actualizar la base de conocimiento](#actualizar-la-base-de-conocimiento)
 - [Límites y diferencias con las propuestas](#límites-y-diferencias-con-las-propuestas)
 - [Referencias](#referencias)
@@ -35,7 +36,7 @@ flowchart TD
     Q["Texto original del profesional"] --> QE["Embedding de consulta"]
     QE --> R["Buscar hasta 3 fragmentos"]
     I --> R
-    R --> F["Filtrar score mayor o igual a 0.5"]
+    R --> F["Filtrar score mayor o igual a 0.30"]
     F --> C["Contexto temporal para el chat"]
 ```
 
@@ -62,9 +63,9 @@ No hay parser de front matter: los encabezados YAML de los documentos forman par
 | Modelo | `OLLAMA_EMBED_MODEL` o `embeddinggemma` | Genera vectores de documentos y consultas |
 | Host | `OLLAMA_BASE_URL` o `http://127.0.0.1:11434` | Servicio Ollama para embeddings |
 | `TOP_K` | `3` | Máximo de candidatos solicitado al recuperador |
-| `SIMILARITY_THRESHOLD` | `0.5` | Puntaje mínimo aceptado después de recuperar |
+| `SIMILARITY_THRESHOLD` | `0.30` | Puntaje mínimo aceptado después de recuperar; medido con `embeddinggemma` ([calibración](#calibración-del-umbral)) |
 
-`SentenceSplitter` proporciona división de texto con solapamiento; el código no agrega reglas propias para respetar tablas, secciones clínicas o excepciones. El umbral está marcado como provisional y sin calibrar.
+`SentenceSplitter` proporciona división de texto con solapamiento; el código no agrega reglas propias para respetar tablas, secciones clínicas o excepciones. El umbral se midió con consultas sintéticas, sin que eso sea una validación clínica ([ADR 0013](../adr/0013-similarity-threshold-measured-on-embeddinggemma.md)).
 
 La construcción usa `Settings.withNodeParser` y `Settings.withEmbedModel` para acotar la configuración a la operación. El índice conserva el modelo de embeddings con el que se construyó o cargó para representar las consultas posteriores. Cambiar el modelo conversacional no obliga a recalcular estos vectores; cambiar el de embeddings sí puede hacerlo.
 
@@ -100,7 +101,7 @@ La promesa `building` comparte una carga/construcción entre solicitudes del mis
 
 `retrieveContext(clinicianText)` obtiene el índice y solicita `similarityTopK: 3` con el texto original del chat. No incorpora historial, motivo anterior, nombre, signos manuales ni instrucciones JSON a la consulta.
 
-Los resultados se filtran por `score >= 0.5`; un puntaje ausente se interpreta como cero. Después se extrae `node.getContent(MetadataMode.NONE)`, por lo que el resultado de esta función es `string[]`, sin un objeto de fuentes o puntajes. Esa opción evita agregar metadata del nodo al contenido; no elimina el front matter que ya era parte del texto del archivo.
+La búsqueda en sí es `searchKnowledge(query)`, que devuelve los candidatos con su puntaje y el nombre del archivo, antes del filtro; la usa también la evaluación del umbral. Los resultados se filtran por `score >= 0.30`; un puntaje ausente se interpreta como cero. Después se extrae `node.getContent(MetadataMode.NONE)`, por lo que el resultado de `retrieveContext` es `string[]`, sin un objeto de fuentes o puntajes. Esa opción evita agregar metadata del nodo al contenido; no elimina el front matter que ya era parte del texto del archivo.
 
 `buildContextMessage()` enumera los fragmentos y los coloca en un mensaje `system` antes del mensaje actual. Se indica que son referencia y que los datos del profesional tienen prioridad. El contexto se envía solo en esa llamada, no se añade directamente a memoria ni a SQLite y no se presenta como citas en la interfaz.
 
@@ -118,11 +119,22 @@ Supongamos que existe `knowledge/apoyo.md` con texto sintético y el profesional
 1. Al iniciar el caso, se lee el corpus y se compara su hash. Si cambió, se fragmenta y se generan embeddings; si coincide, se reutiliza el índice.
 2. La apertura responde sin búsqueda de fragmentos, mientras se prepara ese índice.
 3. Al enviar la frase, el turno espera la preparación si aún sigue en curso y genera el embedding de la frase.
-4. Se solicitan tres candidatos. Con puntajes hipotéticos `0.72`, `0.56` y `0.31`, se entregan solo los dos primeros.
+4. Se solicitan tres candidatos. Con puntajes hipotéticos `0.72`, `0.56` y `0.21`, se entregan solo los dos primeros.
 5. Se construye el contexto temporal y el chat recibe historial, fragmentos, datos manuales e instrucciones de salida.
 6. La respuesta se procesa según el [contrato de Ollama](05-integracion-ollama.md#contrato-de-respuesta). La consulta siguiente vuelve a buscar con su propio texto.
 
 Es un ejemplo del algoritmo, no una medición del corpus. Una contestación breve como «sí» puede recuperar mal porque el buscador no incorpora el resto de la entrevista.
+
+## Calibración del umbral
+
+`SIMILARITY_THRESHOLD` vale `0.30`. Se midió con `embeddinggemma` mediante una evaluación repetible; el método, los resultados y los motivos están en el [ADR 0013](../adr/0013-similarity-threshold-measured-on-embeddinggemma.md).
+
+- **Conjunto de consultas:** [similarity-queries.ts](../../evals/similarity-queries.ts), con 31 consultas sintéticas: 23 por tema con el documento que debe recuperarse, 4 fuera de tema y 4 respuestas breves como «sí» o «desde ayer», que no deben recuperar nada. Está fuera de `knowledge/` para que no se indexe y no contiene datos de pacientes reales.
+- **Cómo repetirla:** `pnpm eval:similarity`, con Ollama activo y el modelo de embeddings descargado. Usa `searchKnowledge`, con el mismo tamaño de fragmento, solapamiento y `TOP_K` que la aplicación. Informa el modelo, los tres fragmentos con su puntaje por consulta, la tasa de acierto en el top 3 y, para cada umbral de 0.30 a 0.70, cuántos fragmentos esperados e irrelevantes lo superan. Dos corridas con el mismo corpus y modelo dan los mismos puntajes. Como la evaluación y la aplicación comparten `.rag-index/`, conviene detener el servidor de desarrollo antes de correrla.
+- **Qué mostró:** los puntajes de fragmentos relevantes e irrelevantes se superponen, así que el valor es un compromiso y no una separación limpia. `0.30` conserva 21 de 23 fragmentos esperados y rechaza todas las consultas fuera de tema y respuestas breves, pero deja pasar documentos vecinos, entre ellos `throwaway-manchester.md` y las fichas de contrato, validación y salida.
+- **Cuándo repetirla:** al cambiar el corpus o el modelo de embeddings. Cambiar el umbral no exige reconstruir el índice, porque no forma parte del hash.
+
+Mide si la búsqueda encuentra el texto adecuado. No valida clínicamente la recuperación, y gran parte del corpus sigue siendo `borrador_no_validado`.
 
 ## Actualizar la base de conocimiento
 
@@ -143,7 +155,7 @@ El wrapper llama a lo recuperado «Material de referencia sobre el protocolo de 
 ## Referencias
 
 - [Código de RAG](../../src/lib/rag.ts) y [composición del contexto](../../src/app/actions.ts).
-- [ADR 0009](../adr/0009-rag-over-manchester-protocol.md).
+- [ADR 0009](../adr/0009-rag-over-manchester-protocol.md) y [ADR 0013](../adr/0013-similarity-threshold-measured-on-embeddinggemma.md).
 - [Tickets 17–19](../tickets/README.md#ollama-rag-y-persistencia).
 - [Diagnóstico](08-desarrollo-y-diagnostico.md#diagnóstico-por-síntoma).
 
