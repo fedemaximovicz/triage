@@ -1,7 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import { chat, createCase, startCase as startModelCase } from "@/app/actions";
 import Chat from "@/components/Chat";
+import Nav from "@/components/Nav";
 import RecommendationPanel from "@/components/RecommendationPanel";
 
 // Client wrapper around the conversation and the recommendation panel — they
@@ -26,43 +28,148 @@ export type Recommendation = {
   proximosPasos?: string[];
 };
 
-// A case's identity: the fact both Chat's header/composer and the panel's
-// empty state read to know whether a case is open (ticket 10). `null` means
-// no case, matching the app's opening state (ADR 0006).
-export type Case = { number: number; startedAt: Date };
+// What the clinician typed into the panel by hand. It outranks the model's
+// reading in the panel and is sent with the next turn as context.
+export type ClinicianData = { paciente: string; signosVitales: Vital[] };
 
-// In-memory counter, deliberately reset on reload (ADR 0006) — the real
-// number comes from a database row id once one exists.
-const FIRST_CASE_NUMBER = 2451;
+// The case in progress (ADR 0006). null means the app is in its empty state.
+// Held here so the conversation and the panel read the same fact.
+export type ActiveCase = { number: number; startedAt: Date };
+export type Message = { kind: "nurse" | "ai"; text: string };
 
 export default function CaseView() {
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
-  const [activeCase, setActiveCase] = useState<Case | null>(null);
-  const nextCaseNumber = useRef(FIRST_CASE_NUMBER);
+  const [activeCase, setActiveCase] = useState<ActiveCase | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [analyzing, setAnalyzing] = useState(false);
+  const requestPending = useRef(false);
+  const discardDialog = useRef<HTMLDialogElement>(null);
+  // Kept current by the panel, which remounts (and reports empty data) with
+  // each new case. A ref, not state: only the next turn reads it.
+  const clinicianData = useRef<ClinicianData>({ paciente: "", signosVitales: [] });
+  const reportClinicianData = useCallback((data: ClinicianData) => {
+    clinicianData.current = data;
+  }, []);
 
-  const startCase = () => {
-    setActiveCase({ number: nextCaseNumber.current, startedAt: new Date() });
-    nextCaseNumber.current += 1;
+  // Both entry points use the same lifecycle. Guard synchronously against
+  // double clicks before React has rendered the disabled controls.
+  const startCase = async () => {
+    if (requestPending.current) return;
+    requestPending.current = true;
+    setAnalyzing(true);
+    try {
+      // The server assigns the number and saves the case before the opening
+      // turn goes out (ADR 0010), so a failed turn still leaves a started case.
+      // The case being discarded, if any, is marked `descartado` in the same
+      // call. If this fails nothing was created and the screen stays as it was.
+      let created: { number: number; startedAt: string };
+      try {
+        created = await createCase(activeCase?.number);
+      } catch {
+        if (activeCase) {
+          setMessages((prev) => [
+            ...prev,
+            { kind: "ai", text: "No se pudo obtener una respuesta. Intentá de nuevo." },
+          ]);
+        }
+        return;
+      }
+      setMessages([]);
+      setRecommendation(null);
+      setActiveCase({ number: created.number, startedAt: new Date(created.startedAt) });
+      try {
+        const result = await startModelCase(created.number);
+        setMessages([{ kind: "ai", text: result.response }]);
+        setRecommendation(result.recommendation);
+      } catch {
+        setMessages([{ kind: "ai", text: "No se pudo obtener una respuesta. Intentá de nuevo." }]);
+      }
+    } finally {
+      requestPending.current = false;
+      setAnalyzing(false);
+    }
   };
 
-  // Descartar caso (ADR 0006, ticket 14): throws the current case away and
-  // opens the next one in the same act. Clearing `recommendation` here, and
-  // keying RecommendationPanel below by case number, is what resets the
-  // panel's override/acceptance/note/Anular-picker state — that state is
-  // local to RecommendationPanel and has no other way in from here.
-  const discardCase = () => {
-    setRecommendation(null);
-    startCase();
+  const sendMessage = async (text: string) => {
+    if (!activeCase || !text.trim() || requestPending.current) return;
+    requestPending.current = true;
+    setAnalyzing(true);
+    setMessages((prev) => [...prev, { kind: "nurse", text }]);
+    try {
+      const result = await chat(activeCase.number, text, clinicianData.current);
+      setMessages((prev) => [...prev, { kind: "ai", text: result.response }]);
+      setRecommendation(result.recommendation);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { kind: "ai", text: "No se pudo obtener una respuesta. Intentá de nuevo." },
+      ]);
+    } finally {
+      requestPending.current = false;
+      setAnalyzing(false);
+    }
+  };
+
+  const handleNewCase = () => {
+    if (requestPending.current) return;
+    if (activeCase) {
+      discardDialog.current?.showModal();
+    } else {
+      void startCase();
+    }
   };
 
   return (
     <>
-      <Chat case={activeCase} onStartCase={startCase} onDiscardCase={discardCase} onRecommendation={setRecommendation} />
+      <Nav active="nuevo" onNewCase={handleNewCase} disabled={analyzing} />
+      <Chat
+        key={`chat-${activeCase?.number ?? "empty"}`}
+        activeCase={activeCase}
+        onStartCase={startCase}
+        messages={messages}
+        analyzing={analyzing}
+        onSend={sendMessage}
+      />
       <RecommendationPanel
-        key={activeCase?.number ?? "none"}
+        key={`recommendation-${activeCase?.number ?? "empty"}`}
         recommendation={recommendation}
         hasCase={activeCase !== null}
+        caseNumber={activeCase?.number ?? null}
+        onClinicianDataChange={reportClinicianData}
       />
+      <dialog
+        ref={discardDialog}
+        aria-labelledby="discard-case-title"
+        aria-describedby="discard-case-description"
+        className="fixed inset-0 m-auto max-w-md rounded-2xl border border-black/20 bg-[#f5f6f7] p-6 text-[#262a30] shadow-xl backdrop:bg-black/40"
+      >
+        <h2 id="discard-case-title" className="text-xl font-bold">¿Descartar el caso actual?</h2>
+        <p id="discard-case-description" className="mt-3 text-[15px] leading-normal">
+          Se perderán la conversación, la recomendación, la decisión de triage y las notas
+          del caso #{activeCase?.number}. Se iniciará un caso nuevo.
+        </p>
+        <div className="mt-6 flex justify-end gap-3">
+          <button
+            type="button"
+            autoFocus
+            onClick={() => discardDialog.current?.close()}
+            className="rounded-[9px] border border-black/20 px-4 py-2 font-semibold hover:bg-black/5"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            disabled={analyzing}
+            onClick={() => {
+              discardDialog.current?.close();
+              void startCase();
+            }}
+            className="rounded-[9px] bg-[#262a30] px-4 py-2 font-semibold text-[#f5f6f7] hover:bg-black disabled:opacity-50"
+          >
+            Descartar e iniciar caso
+          </button>
+        </div>
+      </dialog>
     </>
   );
 }

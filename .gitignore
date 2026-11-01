@@ -43,3 +43,10 @@ next-env.d.ts
 
 
 /.claude
+
+# RAG index (ticket 18): built output and its staging folder
+/.rag-index/
+/.rag-index.tmp/
+
+# Saved cases (ticket 21): local SQLite file
+/.data/

@@ -1,4 +1,3 @@
-import Nav from "@/components/Nav";
 import CaseView from "@/components/CaseView";
 
 // "Nuevo caso" screen — three-column shell (ADR 0001). The left nav is complete
@@ -7,7 +6,6 @@ import CaseView from "@/components/CaseView";
 export default function Home() {
   return (
     <div className="flex h-screen w-full overflow-hidden bg-[#f5f6f7]">
-      <Nav />
       <CaseView />
     </div>
   );

@@ -1,7 +1,7 @@
 # 15 — Deshacer releases the human decision, and Reiniciar caso goes away
 
 Blocked by: 14
-Status: todo
+Status: done
 
 ## Goal
 After **Aceptar** or **Anular**, the toast those actions already raise offers

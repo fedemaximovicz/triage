@@ -1,21 +1,22 @@
 "use server";
 
-import { GoogleGenAI, type Chat } from "@google/genai";
+import { SimpleChatEngine, type ChatMessage } from "llamaindex";
+import { Ollama } from "@llamaindex/ollama";
+import {
+  insertCase,
+  saveDecision as writeDecision,
+  saveNote as writeNote,
+  savePatientName as writePatientName,
+  saveTurn,
+} from "@/lib/db";
+import { retrieveContext, warmIndex } from "@/lib/rag";
 
-// Server-side model access, calling @google/genai directly (ADR 0004). The
-// LlamaIndex-based version (ADR 0002, ticket 06) is parked, unused, in
-// llamaindex-engine.ts for when Ollama is installed — @llamaindex/google's
-// Gemini provider can't reach a model this API key still supports (see ADR
-// 0004 for the exact crash).
+// Server-side model access: a local Ollama through LlamaIndex.TS (ADR 0008,
+// superseding ADR 0004).
 //
-// Debt: chatSession below is a module-level singleton shared by every request
+// Debt: chatEngine below is a module-level singleton shared by every request
 // and every case. Faithful to the base project's shape, wrong once several
 // cases are open.
-
-interface LCDoc {
-  pageContent: string;
-  metadata: Record<string, unknown>;
-}
 
 // Recommendation contract — ADR 0003. Every field is independently optional:
 // the model may omit or botch any of them, and each is validated on its own
@@ -104,8 +105,8 @@ function buildInstructedMessage(query: string): string {
 
 ---
 Instrucciones para tu respuesta (no se las menciones al clínico):
-1. Respondé primero en prosa, en español, dirigido al clínico, como en cualquier conversación.
-2. Al final de tu respuesta agregá un bloque de código \`\`\`json con esta forma exacta. Omití cualquier campo que no puedas determinar con lo que el clínico escribió — nunca inventes un valor, y nunca inventes la identidad del paciente:
+1. Respondé primero en prosa, en español, dirigido al clínico, como en cualquier conversación. Dirigite a quien escribe de forma genérica: nunca uses "doctor", "doctora", "enfermero" ni ningún otro título o profesión.
+2. Al final de tu respuesta agregá siempre un bloque de código que empiece con una línea \`\`\`json y termine con una línea \`\`\`, con esta forma exacta. Omití cualquier campo que no puedas determinar con lo que el clínico escribió — nunca inventes un valor, y nunca inventes la identidad del paciente:
 {
   "motivo": "string",
   "antecedentes": "string",
@@ -116,69 +117,179 @@ Instrucciones para tu respuesta (no se las menciones al clínico):
   "informacionFaltante": ["string"],
   "proximosPasos": ["string"]
 }
-3. Ese bloque JSON tiene que traer el cuadro completo del caso tal como lo entendés hasta ahora: repetí ahí todo lo que ya habías establecido en turnos anteriores, no sólo lo que este mensaje agregó. Si algo que dijiste antes resultó estar mal, corregilo en este bloque en vez de repetirlo tal cual.
-4. "nivel" tiene que ser exactamente una de esas cinco palabras en minúscula, o tiene que estar ausente si no podés determinarlo — nunca otro valor.
-5. "confianza" tiene que ser un número entero de 0 a 100 (por ejemplo 85), nunca una fracción de 0 a 1.`;
+3. "nivel" tiene que ser exactamente una de esas cinco palabras en minúscula — nunca otro valor. En cuanto el clínico te haya dado cualquier dato clínico (un síntoma, una edad, un signo vital), incluí siempre "nivel" y "confianza" con tu mejor lectura provisional, aunque sea incierta: es una sugerencia que el clínico confirma, no una decisión. Omití "nivel" sólo si todavía no te dio ningún dato clínico.
+4. "confianza" tiene que ser un número entero de 0 a 100 (por ejemplo 85), nunca una fracción de 0 a 1.
+5. El bloque \`\`\`json es obligatorio en cada respuesta y va siempre al final, nunca en medio de la prosa ni sin las marcas \`\`\`. Si no sabés el valor de un campo, omitilo: no lo dejes vacío ("" o []) y no copies los valores de ejemplo como "string".`;
 }
 
-// Prompt inicial de triage (ADR 0007) — fixed, sent as the clinician's turn,
-// never rendered in the thread. Wording is this ticket's open question; expect
-// to adjust it after trying it against the real model.
-const INITIAL_PROMPT = `Estás por empezar la entrevista de triage con un clínico que acaba de abrir un caso nuevo. Todavía no sabés nada del paciente.
-
-Arrancá haciendo una sola pregunta — la más útil para empezar a entender el motivo de consulta. No presentes una lista ni pidas varios datos a la vez: es una conversación, un tema por vez.
-
-Seguí entrevistando así en cada turno, una pregunta a la vez, sin dejar de preguntar nunca por lo que todavía falta.
-
-Desde la primera respuesta que te dé algo útil, incluí también "nivel" y "confianza" con tu lectura provisional del caso hasta ese momento, aunque sea con poca información — no esperes a tener el cuadro completo para arriesgar una lectura.`;
+// The prompt inicial de triage (ADR 0007): sent as the clinician's turn when a
+// case starts, and never shown in the thread. Wording is provisional — it is
+// tuned against the real model, and a model that answers with a list of
+// questions has not met the ticket.
+const INITIAL_TRIAGE_PROMPT = `Acaba de empezar un caso de triage nuevo y todavía no sabés nada del paciente. Vas a entrevistar al clínico de a una pregunta por vez. Tu primer mensaje es una sola frase breve: preguntá cuál es el estado del paciente, sin agregar ninguna otra pregunta. Después hacé siempre UNA sola pregunta, la más útil en ese momento; nunca una lista ni varias preguntas juntas. En cada respuesta seguí pidiendo lo que todavía falte para el triage, y nunca des la entrevista por terminada. En cuanto el clínico te dé algo útil, completá "nivel" y "confianza" con tu mejor lectura provisional, y corregila cuando el cuadro cambie. Como en todas tus respuestas, cerrá con el bloque \`\`\`json.`;
 
 const JSON_FENCE = /```(?:json)?\s*([\s\S]*?)```/gi;
 
 // Splits the raw model text into the clinician-facing prose and the JSON
-// text of the last fenced code block, if any. No fenced block at all means
-// the model didn't follow the instructions — jsonText is null and the caller
-// treats the recommendation as unavailable rather than guessing at one.
+// text of the last fenced code block. Without a fence it accepts a bare JSON
+// object that runs to the end of the reply, which is how a small model that
+// ignores the fence instruction usually writes it (ADR 0003). If neither is
+// there, jsonText is null and the caller treats the recommendation as
+// unavailable rather than guessing at one.
 function extractJsonBlock(text: string): { prose: string; jsonText: string | null } {
   const matches = [...text.matchAll(JSON_FENCE)];
-  if (matches.length === 0) return { prose: text.trim(), jsonText: null };
-
-  const last = matches[matches.length - 1];
-  return { prose: text.slice(0, last.index).trim(), jsonText: last[1].trim() };
-}
-
-// gemini-2.5-flash (ticket 06's original pin) is deprecated for this API key;
-// Google's own 404 pointed at this replacement (ADR 0004).
-const MODEL = "gemini-3.6-flash";
-
-let ai: GoogleGenAI | null = null;
-
-// Lazy rather than module-level (the base project built the LLM at import time):
-// a missing key would otherwise throw while the module loads, taking down every
-// route instead of just this action.
-function ensureClient(): GoogleGenAI {
-  if (ai) return ai;
-
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      "GEMINI_API_KEY no está definida. Copiá .env.example a .env.local y completá el valor.",
-    );
+  if (matches.length > 0) {
+    const last = matches[matches.length - 1];
+    return { prose: text.slice(0, last.index).trim(), jsonText: last[1].trim() };
   }
 
-  ai = new GoogleGenAI({ apiKey });
-  return ai;
+  // The earliest "{" whose remainder parses is the whole outer object; a stray
+  // "{" in the prose never parses to the end of the text.
+  for (let i = text.indexOf("{"); i !== -1; i = text.indexOf("{", i + 1)) {
+    const candidate = text.slice(i).trim();
+    try {
+      JSON.parse(candidate);
+    } catch {
+      continue;
+    }
+    const prose = text.slice(0, i).replace(/\s*-{3,}\s*$/, "").trim();
+    return { prose, jsonText: candidate };
+  }
+  return { prose: text.trim(), jsonText: null };
 }
 
-let chatSession: Chat | null = null;
+const DEFAULT_BASE_URL = "http://127.0.0.1:11434";
+const DEFAULT_MODEL = "llama3.2:3b";
+const DEFAULT_NUM_CTX = 8192;
 
-function activeSession(): Chat {
-  chatSession ??= ensureClient().chats.create({ model: MODEL, config: { temperature: 0 } });
-  return chatSession;
+// Ollama truncates silently at num_ctx, and its own default (4096) is too small
+// for an interview that carries the full JSON every turn — so it is always set
+// explicitly (ADR 0008). A missing or unparseable value falls back to the default.
+function numCtx(): number {
+  const parsed = Number.parseInt(process.env.OLLAMA_NUM_CTX ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_NUM_CTX;
 }
 
-export async function chat(query: string) {
-  const result = await activeSession().sendMessage({ message: buildInstructedMessage(query) });
-  const rawText = result.text ?? "";
+let chatEngine: SimpleChatEngine | null = null;
+
+// Lazy rather than module-level: the env is read when a turn needs the model,
+// not while the module loads. Nothing is checked up front — with Ollama stopped
+// or the model not pulled, chat() rejects and the UI shows the error bubble.
+function activeEngine(): SimpleChatEngine {
+  chatEngine ??= new SimpleChatEngine({
+    llm: new Ollama({
+      model: process.env.OLLAMA_MODEL || DEFAULT_MODEL,
+      config: { host: process.env.OLLAMA_BASE_URL || DEFAULT_BASE_URL },
+      options: { temperature: 0, num_ctx: numCtx() },
+    }),
+  });
+  return chatEngine;
+}
+
+// The contexto recuperado for one turn (ADR 0009). The model is told it is
+// reference material, not ground truth: the clinician's words win.
+function buildContextMessage(fragments: string[]): ChatMessage {
+  const passages = fragments.map((fragment, i) => `[${i + 1}] ${fragment}`).join("\n\n");
+  return {
+    role: "system",
+    content: `Material de referencia sobre el protocolo de triage Manchester, buscado para este mensaje (no se lo menciones al clínico):
+
+${passages}
+
+Usalo sólo como referencia. Lo que el clínico dijo sobre el paciente tiene prioridad sobre este material, e ignorá los pasajes que no tengan que ver con el caso.`,
+  };
+}
+
+interface ClinicianData {
+  paciente: string;
+  signosVitales: Vital[];
+}
+
+const MAX_CLINICIAN_VITALS = 12;
+const MAX_CLINICIAN_FIELD_LENGTH = 100;
+
+// What the clinician typed into the panel, sent with each turn. Checked rather
+// than trusted like every server action argument: a malformed piece is dropped,
+// never the turn.
+function validateClinicianData(raw: unknown): ClinicianData {
+  const obj = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
+  const fits = (text: string) => text.length <= MAX_CLINICIAN_FIELD_LENGTH;
+  const paciente = typeof obj.paciente === "string" && fits(obj.paciente.trim()) ? obj.paciente.trim() : "";
+  const signosVitales = Array.isArray(obj.signosVitales)
+    ? obj.signosVitales
+        .filter((v): v is Vital => isVital(v) && fits(v.label) && fits(v.value) && fits(v.unit))
+        .slice(0, MAX_CLINICIAN_VITALS)
+    : [];
+  return { paciente, signosVitales };
+}
+
+// The clinician's own panel data for one turn. Like the contexto recuperado it
+// is sent with this call only, never added to memory, and it outranks what the
+// model read from the conversation. Nothing typed, no message.
+function buildClinicianMessage(data: ClinicianData): ChatMessage | null {
+  const lines: string[] = [];
+  if (data.paciente) lines.push(`Paciente: ${data.paciente}`);
+  if (data.signosVitales.length > 0) {
+    lines.push(
+      "Signos vitales:",
+      ...data.signosVitales.map((v) => `- ${v.label}: ${v.value}${v.unit ? ` ${v.unit}` : ""}`),
+    );
+  }
+  if (lines.length === 0) return null;
+  return {
+    role: "system",
+    content: `Datos que el clínico cargó a mano en el panel del caso (no se lo menciones al clínico):
+
+${lines.join("\n")}
+
+Son datos del clínico: tienen prioridad sobre lo que hayas leído en la conversación, y no hace falta que los vuelvas a pedir.`,
+  };
+}
+
+export async function chat(caseId: number, query: string, clinicianData?: ClinicianData) {
+  // Retrieval uses only the clinician's own text, never the instructed message
+  // (ADR 0009), and runs before anything is written to the history so a failed
+  // lookup leaves the conversation as it was.
+  const fragments = await retrieveContext(query);
+  const clinicianMessage = buildClinicianMessage(validateClinicianData(clinicianData));
+  const turnContext = [
+    ...(fragments.length > 0 ? [buildContextMessage(fragments)] : []),
+    ...(clinicianMessage ? [clinicianMessage] : []),
+  ];
+  const result = await runTurn(query, turnContext);
+  // Saved only once the model has answered, both messages together: a failed
+  // turn leaves nothing behind. The nurse row holds the clinician's raw text,
+  // not the instructed message or the contexto recuperado (ADR 0010).
+  saveTurn(
+    caseId,
+    [
+      { kind: "nurse", text: query },
+      { kind: "ai", text: result.response },
+    ],
+    result.recommendation,
+  );
+  return result;
+}
+
+async function runTurn(query: string, turnContext: ChatMessage[]) {
+  // SimpleChatEngine.chat() can't take a message for one turn only, so its few
+  // steps are done here by hand. The turn's context (contexto recuperado,
+  // clinician's panel data) is added to the list sent with this call but never
+  // to memory, so the next turn doesn't resend it and ADR 0008's num_ctx isn't
+  // spent on it. It goes right before the current user message, not after it:
+  // llama3.2 answered a trailing system turn with a stray "assistant" prefix.
+  const engine = activeEngine();
+  await engine.memory.add({ role: "user", content: buildInstructedMessage(query) });
+  const history = await engine.memory.getLLM(engine.llm);
+  const messages = [...history.slice(0, -1), ...turnContext, history[history.length - 1]];
+  const result = await engine.llm.chat({ messages, stream: false });
+  await engine.memory.add(result.message);
+
+  const content = result.message.content;
+  const rawText =
+    typeof content === "string"
+      ? content
+      : content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
 
   const { prose, jsonText } = extractJsonBlock(rawText);
 
@@ -195,15 +306,72 @@ export async function chat(query: string) {
   return { response: prose, recommendation };
 }
 
-export async function processDocs(lcDocs: LCDoc[]) {
-  // Not implemented against @google/genai directly (ADR 0004) — RAG was
-  // already out of scope (ticket 06/08). The working version lives in
-  // llamaindex-engine.ts; wire that back in once Ollama is available.
-  void lcDocs;
+// Iniciar caso (ADR 0006/0007). The reset is awaited before the prompt goes
+// out, or the first question of a new case would be answered with the previous
+// case in the model's context. No retrieval: the prompt is fixed text, not
+// something the clinician wrote, so searching the knowledge base with it would
+// only inject unrelated fragments (ADR 0009). The index is warmed alongside the
+// turn, not before it: warmIndex() isn't awaited and never rejects, so the
+// opening turn doesn't depend on it, and the first clinician turn finds it
+// ready or waits for it.
+//
+// The case row already exists (createCase), so a failed opening turn leaves a
+// started case with no messages (ADR 0007). Only the AI's reply is saved; the
+// prompt inicial never is (ADR 0010).
+export async function startCase(caseId: number) {
+  await resetChatEngine();
+  warmIndex();
+  const result = await runTurn(INITIAL_TRIAGE_PROMPT, []);
+  saveTurn(caseId, [{ kind: "ai", text: result.response }], result.recommendation);
+  return result;
+}
+
+// Creates the case row on the server and returns its number and start time
+// (ADR 0010). Separate from startCase so a failed opening turn doesn't lose the
+// number the server just assigned. `discardId` is the case being thrown away,
+// marked `descartado` before the new one is created.
+export async function createCase(discardId?: number) {
+  return insertCase(discardId);
+}
+
+// Saves the clinician's decision from the panel (ADR 0010). Server actions are
+// callable by anyone who can reach the app, so the arguments are checked rather
+// than trusted: a decision always comes with one of the five levels, and
+// Deshacer sends null for both.
+export async function saveDecision(
+  caseId: number,
+  decision: "aceptado" | "anulado" | null,
+  nivel: ManchesterKey | null,
+) {
+  if (!Number.isInteger(caseId)) throw new Error("Invalid case number");
+  if (decision === null) {
+    if (nivel !== null) throw new Error("A level needs a decision");
+  } else if (
+    (decision !== "aceptado" && decision !== "anulado") ||
+    nivel === null ||
+    !MANCHESTER_KEYS.includes(nivel)
+  ) {
+    throw new Error("Invalid decision");
+  }
+  writeDecision(caseId, decision, nivel);
+}
+
+// Saves the clinician's note; an empty or blank one is stored as null.
+export async function saveNote(caseId: number, note: string) {
+  if (!Number.isInteger(caseId) || typeof note !== "string") throw new Error("Invalid note");
+  writeNote(caseId, note.trim() === "" ? null : note);
+}
+
+// Saves the patient's name from the panel; an empty or blank one is stored as null.
+export async function savePatientName(caseId: number, name: string) {
+  if (!Number.isInteger(caseId) || typeof name !== "string") throw new Error("Invalid patient name");
+  const trimmed = name.trim();
+  writePatientName(caseId, trimmed === "" ? null : trimmed);
 }
 
 export async function resetChatEngine() {
-  chatSession = null;
+  // Dropping the engine drops its memory: the next turn builds a fresh one.
+  chatEngine = null;
 }
 
 // Iniciar caso (ADR 0006, ADR 0007): the reset is chained ahead of the
